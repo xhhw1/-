@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { Paperclip } from "@phosphor-icons/react";
 import {
   batchDeleteConversations,
+  cancelBackgroundTask,
   createConversation,
   createKnowledgeEntry,
   deleteConversation,
@@ -15,6 +16,7 @@ import {
   listKnowledgeEntries,
   login,
   previewProjectKnowledge,
+  retryBackgroundTask,
   sendConversationMessage,
   submitReviewGateAction,
   updateKnowledgeEntry,
@@ -138,6 +140,26 @@ export function App() {
     queryFn: () => listBackgroundTasks(currentProjectId),
     enabled: apiReady && Boolean(currentProjectId),
     refetchInterval: apiReady && currentProjectId ? 2000 : false
+  });
+
+  const cancelTaskMutation = useMutation({
+    mutationFn: cancelBackgroundTask,
+    onSuccess: () => {
+      showToast("任务已取消");
+      if (currentProjectId) queryClient.invalidateQueries({ queryKey: ["tasks", currentProjectId] });
+      if (selectedId) queryClient.invalidateQueries({ queryKey: ["conversation", selectedId] });
+    },
+    onError: showError
+  });
+
+  const retryTaskMutation = useMutation({
+    mutationFn: retryBackgroundTask,
+    onSuccess: () => {
+      showToast("任务已重新排队");
+      if (currentProjectId) queryClient.invalidateQueries({ queryKey: ["tasks", currentProjectId] });
+      if (selectedId) queryClient.invalidateQueries({ queryKey: ["conversation", selectedId] });
+    },
+    onError: showError
   });
 
   useEffect(() => {
@@ -520,6 +542,7 @@ export function App() {
           detail={currentDetail}
           healthLabel={healthLabel(health.data)}
           tasks={tasks.data ?? []}
+          taskActionBusy={cancelTaskMutation.isPending || retryTaskMutation.isPending}
           onRefresh={() => {
             queryClient.invalidateQueries({ queryKey: ["health"] });
             queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -538,6 +561,8 @@ export function App() {
               onConfirm: () => deleteMutation.mutate(selectedId)
             });
           }}
+          onCancelTask={(jobId) => cancelTaskMutation.mutate(jobId)}
+          onRetryTask={(jobId) => retryTaskMutation.mutate(jobId)}
         />
 
         {activeView === "knowledge" ? (
@@ -740,14 +765,20 @@ function TopBar({
   detail,
   healthLabel,
   tasks,
+  taskActionBusy,
   onRefresh,
-  onDelete
+  onDelete,
+  onCancelTask,
+  onRetryTask
 }: {
   detail: ConversationDetail | null | undefined;
   healthLabel: string;
   tasks: BackgroundTask[];
+  taskActionBusy: boolean;
   onRefresh: () => void;
   onDelete: () => void;
+  onCancelTask: (jobId: string) => void;
+  onRetryTask: (jobId: string) => void;
 }) {
   const progress = detail ? confirmedProgress(detail) : null;
   const runningTasks = tasks.filter((task) => task.status === "queued" || task.status === "running").length;
@@ -778,6 +809,53 @@ function TopBar({
           删
         </button>
       </div>
+      <TaskStatusStrip
+        tasks={tasks}
+        busy={taskActionBusy}
+        onCancelTask={onCancelTask}
+        onRetryTask={onRetryTask}
+      />
+    </div>
+  );
+}
+
+function TaskStatusStrip({
+  tasks,
+  busy,
+  onCancelTask,
+  onRetryTask
+}: {
+  tasks: BackgroundTask[];
+  busy: boolean;
+  onCancelTask: (jobId: string) => void;
+  onRetryTask: (jobId: string) => void;
+}) {
+  const visibleTasks = tasks.filter((task) => task.status !== "succeeded").slice(0, 3);
+  if (!visibleTasks.length) return null;
+  return (
+    <div className="task-strip" aria-label="后台任务状态">
+      {visibleTasks.map((task) => {
+        const terminal = task.status === "failed" || task.status === "cancelled";
+        const active = task.status === "queued" || task.status === "running";
+        return (
+          <div className={`task-pill ${task.status}`} key={task.id}>
+            <span className="task-dot"></span>
+            <strong>{taskKindLabel(task.kind)}</strong>
+            <span>{taskStatusLabel(task.status)}</span>
+            {task.error ? <em title={task.error}>{task.error}</em> : null}
+            {terminal ? (
+              <button type="button" disabled={busy} onClick={() => onRetryTask(task.id)}>
+                重试
+              </button>
+            ) : null}
+            {active ? (
+              <button type="button" disabled={busy} onClick={() => onCancelTask(task.id)}>
+                取消
+              </button>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2385,6 +2463,26 @@ function shortText(value: string, length: number) {
 
 function messageTypeLabel(type: string) {
   return ({ status: "状态", tool_call: "工具调用", tool_result: "工具结果", review_action: "人工操作", planner_decision: "调度决策" }[type] ?? type);
+}
+
+function taskKindLabel(kind: string) {
+  const labels: Record<string, string> = {
+    agent_run: "Agent 任务",
+    asset_processing: "素材解析",
+    image_generation: "生图任务"
+  };
+  return labels[kind] ?? kind;
+}
+
+function taskStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    queued: "排队中",
+    running: "运行中",
+    failed: "失败",
+    cancelled: "已取消",
+    succeeded: "完成"
+  };
+  return labels[status] ?? status;
 }
 
 function messageRunStatus(message: ConversationMessage) {

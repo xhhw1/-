@@ -182,6 +182,87 @@
   cursor: pointer;
 }
 
+.task-strip {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 24px 10px;
+}
+
+.task-pill {
+  max-width: min(100%, 520px);
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--pv-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--pv-text-2);
+  padding: 6px 8px 6px 11px;
+  font-size: 12px;
+  box-shadow: 0 8px 20px rgb(23 33 38 / 0.04);
+}
+
+.task-pill.running,
+.task-pill.queued {
+  border-color: rgba(133, 79, 11, 0.18);
+  background: #faeeda;
+  color: #854f0b;
+}
+
+.task-pill.failed {
+  border-color: rgba(163, 45, 45, 0.18);
+  background: #fcebeb;
+  color: #a32d2d;
+}
+
+.task-pill.cancelled {
+  background: #f1efe8;
+  color: #5f5e5a;
+}
+
+.task-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.task-pill strong {
+  color: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.task-pill em {
+  max-width: 220px;
+  overflow: hidden;
+  color: inherit;
+  font-style: normal;
+  opacity: 0.8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-pill button {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: #fff;
+  color: inherit;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.task-pill button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .pv-thread {
   min-height: 0;
   overflow: auto;

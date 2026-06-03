@@ -42,6 +42,22 @@ export function listBackgroundTasks(projectId?: string): Promise<BackgroundTask[
   return apiRequest<BackgroundTask[]>(`/api/tasks${query}`, {}, { retries: 1, timeoutMs: 10000 });
 }
 
+export function cancelBackgroundTask(jobId: string): Promise<BackgroundTask> {
+  return apiRequest<BackgroundTask>(
+    `/api/tasks/${jobId}/cancel`,
+    { method: "POST" },
+    { retries: 0, timeoutMs: 30000 }
+  );
+}
+
+export function retryBackgroundTask(jobId: string): Promise<BackgroundTask> {
+  return apiRequest<BackgroundTask>(
+    `/api/tasks/${jobId}/retry`,
+    { method: "POST" },
+    { retries: 0, timeoutMs: 30000 }
+  );
+}
+
 export function listConversations(): Promise<ConversationDetail[]> {
   return apiRequest<ConversationDetail[]>("/api/conversations", {}, { retries: 2 });
 }

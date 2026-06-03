@@ -196,7 +196,9 @@ class SqlProjectStore:
                     """
                 )
             )
+        with self.engine.begin() as conn:
             self._ensure_column(conn, "projects", "owner_id", "TEXT NOT NULL DEFAULT ''")
+        with self.engine.begin() as conn:
             conn.execute(
                 self._text(
                     """
@@ -213,6 +215,7 @@ class SqlProjectStore:
                     """
                 )
             )
+        with self.engine.begin() as conn:
             conn.execute(
                 self._text(
                     "CREATE INDEX IF NOT EXISTS idx_assets_project_id ON assets(project_id)"
@@ -493,8 +496,22 @@ class SqlProjectStore:
 
     def _ensure_column(self, conn, table: str, column: str, definition: str) -> None:
         if self.engine.dialect.name == "postgresql":
+            exists = conn.execute(
+                self._text(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = :table
+                      AND column_name = :column
+                    """
+                ),
+                {"table": table, "column": column},
+            ).first()
+            if exists:
+                return
             conn.execute(
-                self._text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+                self._text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             )
             return
         try:

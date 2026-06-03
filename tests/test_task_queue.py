@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -96,6 +97,64 @@ def test_cancel_background_task_api_for_owned_project() -> None:
     assert response.json()["status"] == "cancelled"
     assert response.json()["error"] == "cancelled_by_user"
     assert background_task_queue.store.get(job.id).status == "cancelled"
+
+
+def test_retry_background_task_api_creates_new_owned_job() -> None:
+    owner = f"task-retry-user-{uuid4()}"
+    app.dependency_overrides[require_current_user] = lambda: AuthUser(
+        id=owner,
+        email=f"{owner}@example.com",
+        role="admin",
+    )
+    client = TestClient(app)
+    project = client.post(
+        "/api/projects",
+        json={
+            "workflow_type": "packaging",
+            "brief": {
+                "category": "toy",
+                "target_user": "family",
+                "user_expectations": [],
+                "value_proposition": "",
+                "core_product_definition": "toy",
+            },
+            "assets": [],
+        },
+    ).json()
+    calls = []
+    kind = f"retry_test_job_{uuid4()}"
+
+    def handler(value: str) -> None:
+        calls.append(value)
+
+    register_background_handler(kind, handler)
+    failed = background_task_queue.store.create(
+        BackgroundJob(
+            kind=kind,
+            project_id=project["id"],
+            owner_id=owner,
+            status="failed",
+            error="previous failure",
+            payload={"value": "retry-payload"},
+        )
+    )
+
+    try:
+        response = client.post(f"/api/tasks/{failed.id}/retry")
+
+        assert response.status_code == 200
+        retried = response.json()
+        assert retried["id"] != failed.id
+        assert retried["kind"] == kind
+        for _ in range(20):
+            if background_task_queue.store.get(retried["id"]).status == "succeeded":
+                break
+            time.sleep(0.02)
+        assert calls == ["retry-payload"]
+        assert background_task_queue.store.get(failed.id).status == "failed"
+        assert background_task_queue.store.get(retried["id"]).status == "succeeded"
+    finally:
+        app.dependency_overrides.pop(require_current_user, None)
 
 
 def test_redis_background_queue_submit_enqueues_without_running() -> None:

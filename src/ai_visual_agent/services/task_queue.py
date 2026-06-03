@@ -310,6 +310,21 @@ class BackgroundTaskQueue:
     def cancel(self, job_id: str, *, reason: str = "cancelled") -> BackgroundJob:
         return self.store.cancel(job_id, reason=reason)
 
+    def retry(self, job_id: str) -> BackgroundJob:
+        job = self.store.get(job_id)
+        if job.status not in {"failed", "cancelled"}:
+            raise ValueError(f"Only failed or cancelled jobs can be retried; current status is {job.status}.")
+        handler = _BACKGROUND_HANDLERS.get(job.kind)
+        if self.backend == "thread" and handler is None:
+            raise RuntimeError(f"No handler registered for background job kind: {job.kind}")
+        return self.submit(
+            kind=job.kind,
+            handler=handler or _missing_registered_handler,
+            kwargs=job.payload,
+            owner_id=job.owner_id,
+            project_id=job.project_id,
+        )
+
     def submit(
         self,
         *,
@@ -456,5 +471,10 @@ def _jsonable(value: Any) -> Any:
         return value
     except TypeError:
         return str(value)
+
+
+def _missing_registered_handler(**_kwargs: Any) -> None:
+    raise RuntimeError("No handler registered for this background job kind.")
+
 
 background_task_queue = BackgroundTaskQueue()

@@ -645,28 +645,10 @@ def list_background_tasks(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     jobs = background_task_queue.store.list(owner_id=user.id, project_id=project_id)
-    return [
-        {
-            "id": job.id,
-            "kind": job.kind,
-            "project_id": job.project_id,
-            "status": job.status,
-            "payload": job.payload,
-            "error": job.error,
-            "created_at": job.created_at,
-            "started_at": job.started_at,
-            "finished_at": job.finished_at,
-            "heartbeat_at": job.heartbeat_at,
-        }
-        for job in jobs
-    ]
+    return [_background_job_response(job) for job in jobs]
 
 
-@router.post("/tasks/{job_id}/cancel")
-def cancel_background_task(
-    job_id: str,
-    user: AuthUser = Depends(require_current_user),
-) -> dict[str, object]:
+def _background_job_for_user(job_id: str, user: AuthUser):
     try:
         job = background_task_queue.store.get(job_id)
     except KeyError as exc:
@@ -678,14 +660,47 @@ def cancel_background_task(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     elif job.owner_id and job.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Task is not owned by current user.")
-    cancelled = background_task_queue.cancel(job_id, reason="cancelled_by_user")
+    return job
+
+
+def _background_job_response(job) -> dict[str, object]:
     return {
-        "id": cancelled.id,
-        "status": cancelled.status,
-        "error": cancelled.error,
-        "finished_at": cancelled.finished_at,
-        "heartbeat_at": cancelled.heartbeat_at,
+        "id": job.id,
+        "kind": job.kind,
+        "project_id": job.project_id,
+        "status": job.status,
+        "payload": job.payload,
+        "error": job.error,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "heartbeat_at": job.heartbeat_at,
     }
+
+
+@router.post("/tasks/{job_id}/cancel")
+def cancel_background_task(
+    job_id: str,
+    user: AuthUser = Depends(require_current_user),
+) -> dict[str, object]:
+    _background_job_for_user(job_id, user)
+    cancelled = background_task_queue.cancel(job_id, reason="cancelled_by_user")
+    return _background_job_response(cancelled)
+
+
+@router.post("/tasks/{job_id}/retry")
+def retry_background_task(
+    job_id: str,
+    user: AuthUser = Depends(require_current_user),
+) -> dict[str, object]:
+    settings = get_settings()
+    _rate_limit_or_429(user=user, scope="task_retry", limit=settings.rate_limit_agent_per_minute)
+    _background_job_for_user(job_id, user)
+    try:
+        retried = background_task_queue.retry(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _background_job_response(retried)
 
 
 @router.get("/knowledge", response_model=list[KnowledgeBaseEntry])
