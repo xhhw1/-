@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from ai_visual_agent.domain import AssetRef
 from ai_visual_agent.main import app
 from ai_visual_agent.services.segmentation import MockSegmentationProvider
+from ai_visual_agent.services.storage import asset_storage
 
 
 PNG_1X1 = base64.b64decode(
@@ -13,7 +14,8 @@ PNG_1X1 = base64.b64decode(
 )
 
 
-def test_mock_segmentation_provider_outputs_assets(tmp_path) -> None:
+def test_mock_segmentation_provider_outputs_assets(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(asset_storage, "root", tmp_path)
     image_path = tmp_path / "product.png"
     image_path.write_bytes(PNG_1X1)
     asset = AssetRef(kind="product_image", filename="product.png", uri=str(image_path), mime_type="image/png")

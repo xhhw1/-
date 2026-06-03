@@ -665,7 +665,10 @@ def _reference_image_assets(job: DesignGenerationJob) -> list[tuple[str, Path]]:
         asset = by_id.get(asset_id)
         if not asset:
             continue
-        path = Path(asset.uri)
+        try:
+            path = asset_storage.ensure_local_file(asset)
+        except FileNotFoundError:
+            continue
         if path.exists() and path.is_file():
             ordered_paths.append((asset_id, path))
     return ordered_paths

@@ -16,6 +16,7 @@ from ai_visual_agent.services.audit_store import audit_store
 from ai_visual_agent.services.image_analysis import analyze_image_asset, is_image_asset
 from ai_visual_agent.services.memory_store import get_memory_store
 from ai_visual_agent.services.project_store import project_store
+from ai_visual_agent.services.storage import asset_storage
 from ai_visual_agent.tools.document_tools import parse_document_file
 
 
@@ -188,7 +189,8 @@ def _ensure_document_parse(
         }
     try:
         mark_processing_running(project.id, asset.id, tool="document_parser", progress=10)
-        parsed = parse_document_file(file_id=asset.id, file_uri=asset.uri, file_type=asset.mime_type or asset.filename)
+        file_path = asset_storage.ensure_local_file(asset)
+        parsed = parse_document_file(file_id=asset.id, file_uri=str(file_path), file_type=asset.mime_type or asset.filename)
         current = next((item for item in project_store.get(project.id).assets if item.id == asset.id), asset)
         if cancellation_requested(current):
             return {

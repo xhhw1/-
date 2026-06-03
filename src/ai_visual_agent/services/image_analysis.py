@@ -4,6 +4,7 @@ from ai_visual_agent.domain import AssetRef, ImageAssetAnalysis, ImageUnderstand
 from ai_visual_agent.services.audit_store import audit_store
 from ai_visual_agent.services.image_understanding import get_image_understanding_provider
 from ai_visual_agent.services.memory_store import get_memory_store
+from ai_visual_agent.services.storage import asset_storage
 from ai_visual_agent.tools.vision_tools import ocr_image_file
 
 
@@ -95,9 +96,10 @@ def analyze_image_asset(
     if not is_image_asset(asset):
         raise ValueError(f"Asset is not an image: {asset.filename}")
 
+    image_path = asset_storage.ensure_local_file(asset)
     image_role = classify_image_role(asset)
-    width, height = _read_image_size(asset.uri)
-    ocr = ocr_image_file(image_id=asset.id, image_uri=asset.uri)
+    width, height = _read_image_size(str(image_path))
+    ocr = ocr_image_file(image_id=asset.id, image_uri=str(image_path))
     try:
         understanding = get_image_understanding_provider().run(
             asset=asset,

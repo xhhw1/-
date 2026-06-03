@@ -133,6 +133,12 @@ class LocalAssetStorage:
             return True
         return False
 
+    def ensure_local_file(self, asset: AssetRef) -> Path:
+        path = self._safe_storage_path(asset.uri)
+        if path.exists() and path.is_file():
+            return path
+        raise FileNotFoundError(f"Asset file not found in local storage: {asset.id}")
+
     def delete_project_assets(self, project_id: str) -> int:
         project_dir = self._safe_project_dir(project_id)
         if not project_dir.exists():
@@ -232,6 +238,18 @@ class S3BackedAssetStorage(LocalAssetStorage):
     def delete_asset_file(self, asset: AssetRef) -> bool:
         self._delete_object(asset)
         return super().delete_asset_file(asset)
+
+    def ensure_local_file(self, asset: AssetRef) -> Path:
+        path = self._safe_storage_path(str(asset.metadata.get("local_cache_uri") or asset.uri))
+        if path.exists() and path.is_file():
+            return path
+        key = asset.metadata.get("s3_key")
+        bucket = str(asset.metadata.get("s3_bucket") or self.bucket)
+        if not key:
+            raise FileNotFoundError(f"Asset file not found and no S3 key is recorded: {asset.id}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._client.download_file(bucket, str(key), str(path))
+        return path
 
     def delete_project_assets(self, project_id: str) -> int:
         self._delete_project_prefix(project_id)

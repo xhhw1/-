@@ -281,7 +281,7 @@ def test_openai_image_provider_uses_reference_edit(monkeypatch, tmp_path) -> Non
 
     fake_client = FakeClient()
     monkeypatch.setattr(design_generation, "_create_openai_image_client", lambda settings: fake_client)
-    monkeypatch.setattr(design_generation, "_reference_image_paths", lambda job: [reference_path])
+    monkeypatch.setattr(design_generation, "_reference_image_assets", lambda job: [("product-image", reference_path)])
 
     class Settings:
         openai_api_key = "configured"
@@ -330,7 +330,7 @@ def test_openai_image_provider_does_not_silently_drop_reference(monkeypatch, tmp
 
     fake_client = FakeClient()
     monkeypatch.setattr(design_generation, "_create_openai_image_client", lambda settings: fake_client)
-    monkeypatch.setattr(design_generation, "_reference_image_paths", lambda job: [reference_path])
+    monkeypatch.setattr(design_generation, "_reference_image_assets", lambda job: [("product-image", reference_path)])
 
     class Settings:
         openai_api_key = "configured"
@@ -557,6 +557,7 @@ def test_reference_ids_are_not_silently_dropped() -> None:
 
 
 def test_reference_image_paths_follow_job_reference_order(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(asset_storage, "root", tmp_path)
     first_path = tmp_path / "first.png"
     second_path = tmp_path / "second.png"
     first_path.write_bytes(b"\x89PNG\r\n\x1a\nfirst")

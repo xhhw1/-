@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import mimetypes
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Protocol
 
 from ai_visual_agent.config import get_settings
 from ai_visual_agent.domain import AssetRef, ImageUnderstandingResult
+from ai_visual_agent.services.storage import asset_storage
 
 
 class ImageUnderstandingProvider(Protocol):
@@ -111,7 +111,7 @@ class GeminiImageUnderstandingProvider:
                 "MULTIMODAL_BACKEND=gemini requires google-genai. Install the vision extra."
             ) from exc
 
-        image_path = Path(asset.uri)
+        image_path = asset_storage.ensure_local_file(asset)
         mime_type = asset.mime_type or mimetypes.guess_type(asset.uri)[0] or "image/png"
         prompt = _build_prompt(image_role=image_role, ocr_text=ocr_text, width=width, height=height)
         client = genai.Client(api_key=settings.gemini_api_key)
@@ -291,7 +291,7 @@ def _string_list(value: Any) -> list[str]:
 def _local_image_data_url(asset: AssetRef) -> str:
     import base64
 
-    path = Path(asset.uri)
+    path = asset_storage.ensure_local_file(asset)
     mime_type = asset.mime_type or mimetypes.guess_type(asset.uri)[0] or "image/png"
     data = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:{mime_type};base64,{data}"

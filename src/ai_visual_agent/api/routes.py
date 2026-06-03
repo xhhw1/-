@@ -325,7 +325,13 @@ def get_project_asset_content(
     if uri is None:
         raise HTTPException(status_code=404, detail=f"Asset not found: {asset_id}")
 
-    path = _safe_asset_path(uri)
+    if matched_asset:
+        try:
+            path = asset_storage.ensure_local_file(matched_asset)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    else:
+        path = _safe_asset_path(uri)
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail=f"Asset file not found: {asset_id}")
     if download:
@@ -927,13 +933,20 @@ def _build_project_archive(project: ProjectRecord) -> BytesIO:
             uri = (generated["uri"] if generated else "") or str(item.get("uri") or "")
             if not uri:
                 continue
-            path = _safe_asset_path(str(uri))
+            asset = next((item for item in project.assets if item.id == target_asset_id), None)
+            try:
+                path = asset_storage.ensure_local_file(asset) if asset else _safe_asset_path(str(uri))
+            except FileNotFoundError:
+                continue
             if path.exists() and path.is_file():
                 name = _archive_safe_name(str(item.get("name") or f"output_{index}"))
                 suffix = path.suffix or ".png"
                 archive.write(path, f"outputs/{index:02d}_{name}{suffix}")
         for index, asset in enumerate(project.assets, start=1):
-            path = _safe_asset_path(asset.uri)
+            try:
+                path = asset_storage.ensure_local_file(asset)
+            except FileNotFoundError:
+                continue
             if path.exists() and path.is_file():
                 name = _archive_safe_name(asset.filename)
                 archive.write(path, f"source_assets/{index:02d}_{asset.kind}_{name}")

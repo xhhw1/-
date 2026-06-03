@@ -22,7 +22,8 @@ class MockSegmentationProvider(SegmentationProvider):
     engine_name = "mock-sam2"
 
     def run(self, project_id: str, asset: AssetRef, mode: str = "auto") -> SegmentationResult:
-        image, width, height = _load_rgba_image(asset.uri)
+        image_path = asset_storage.ensure_local_file(asset)
+        image, width, height = _load_rgba_image(str(image_path))
         mask_bytes, transparent_bytes, foreground_ratio = _make_full_subject_outputs(image)
         stem = Path(asset.filename).stem or asset.id
 
