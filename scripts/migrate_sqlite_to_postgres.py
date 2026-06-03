@@ -129,7 +129,8 @@ SCHEMA_STATEMENTS = [
         error TEXT NOT NULL,
         created_at TEXT NOT NULL,
         started_at TEXT,
-        finished_at TEXT
+        finished_at TEXT,
+        heartbeat_at TEXT
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_background_jobs_owner ON background_jobs(owner_id)",

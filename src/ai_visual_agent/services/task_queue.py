@@ -31,6 +31,7 @@ class BackgroundJob:
     created_at: str = field(default_factory=_now)
     started_at: str | None = None
     finished_at: str | None = None
+    heartbeat_at: str | None = None
 
 
 class InMemoryBackgroundJobStore:
@@ -47,6 +48,7 @@ class InMemoryBackgroundJobStore:
     def mark(self, job_id: str, status: str, *, error: str = "") -> None:
         job = self._jobs[job_id]
         job.status = status
+        job.heartbeat_at = _now()
         if status == "running":
             job.started_at = _now()
         if status in {"succeeded", "failed", "cancelled"}:
@@ -54,6 +56,39 @@ class InMemoryBackgroundJobStore:
         if error:
             job.error = error
         self._jobs[job_id] = job
+
+    def get(self, job_id: str) -> BackgroundJob:
+        try:
+            return self._jobs[job_id]
+        except KeyError as exc:
+            raise KeyError(f"Background job not found: {job_id}") from exc
+
+    def heartbeat(self, job_id: str) -> None:
+        job = self.get(job_id)
+        job.heartbeat_at = _now()
+        self._jobs[job_id] = job
+
+    def cancel(self, job_id: str, *, reason: str = "cancelled") -> BackgroundJob:
+        job = self.get(job_id)
+        if job.status in {"succeeded", "failed", "cancelled"}:
+            return job
+        job.status = "cancelled"
+        job.error = reason
+        job.finished_at = _now()
+        job.heartbeat_at = job.finished_at
+        self._jobs[job_id] = job
+        return job
+
+    def recover_interrupted(self, *, reason: str) -> int:
+        count = 0
+        for job in self._jobs.values():
+            if job.status in {"queued", "running"}:
+                job.status = "failed"
+                job.error = reason
+                job.finished_at = _now()
+                job.heartbeat_at = job.finished_at
+                count += 1
+        return count
 
     def list(self, *, owner_id: str | None = None, project_id: str | None = None) -> list[BackgroundJob]:
         jobs = list(self._jobs.values())
@@ -94,11 +129,13 @@ class SqlBackgroundJobStore:
                         error TEXT NOT NULL,
                         created_at TEXT NOT NULL,
                         started_at TEXT,
-                        finished_at TEXT
+                        finished_at TEXT,
+                        heartbeat_at TEXT
                     )
                     """
                 )
             )
+            self._ensure_column(conn, "background_jobs", "heartbeat_at", "TEXT")
             conn.execute(self._text("CREATE INDEX IF NOT EXISTS idx_background_jobs_owner ON background_jobs(owner_id)"))
             conn.execute(self._text("CREATE INDEX IF NOT EXISTS idx_background_jobs_project ON background_jobs(project_id)"))
 
@@ -109,10 +146,10 @@ class SqlBackgroundJobStore:
                     """
                     INSERT INTO background_jobs (
                         id, kind, project_id, owner_id, status, payload_json, error,
-                        created_at, started_at, finished_at
+                        created_at, started_at, finished_at, heartbeat_at
                     ) VALUES (
                         :id, :kind, :project_id, :owner_id, :status, :payload_json, :error,
-                        :created_at, :started_at, :finished_at
+                        :created_at, :started_at, :finished_at, :heartbeat_at
                     )
                     """
                 ),
@@ -124,6 +161,7 @@ class SqlBackgroundJobStore:
         patch: dict[str, Any] = {"id": job_id, "status": status, "error": error}
         patch["started_at"] = _now() if status == "running" else None
         patch["finished_at"] = _now() if status in {"succeeded", "failed", "cancelled"} else None
+        patch["heartbeat_at"] = _now()
         with self.engine.begin() as conn:
             conn.execute(
                 self._text(
@@ -132,12 +170,80 @@ class SqlBackgroundJobStore:
                     SET status = :status,
                         error = CASE WHEN :error = '' THEN error ELSE :error END,
                         started_at = COALESCE(:started_at, started_at),
-                        finished_at = COALESCE(:finished_at, finished_at)
+                        finished_at = COALESCE(:finished_at, finished_at),
+                        heartbeat_at = :heartbeat_at
                     WHERE id = :id
                     """
                 ),
                 patch,
             )
+
+    def get(self, job_id: str) -> BackgroundJob:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                self._text("SELECT * FROM background_jobs WHERE id = :id"),
+                {"id": job_id},
+            ).mappings().first()
+        if row is None:
+            raise KeyError(f"Background job not found: {job_id}")
+        return _job_from_row(row)
+
+    def heartbeat(self, job_id: str) -> None:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                self._text("UPDATE background_jobs SET heartbeat_at = :heartbeat_at WHERE id = :id"),
+                {"id": job_id, "heartbeat_at": _now()},
+            )
+        if result.rowcount == 0:
+            raise KeyError(f"Background job not found: {job_id}")
+
+    def cancel(self, job_id: str, *, reason: str = "cancelled") -> BackgroundJob:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                self._text("SELECT * FROM background_jobs WHERE id = :id"),
+                {"id": job_id},
+            ).mappings().first()
+            if row is None:
+                raise KeyError(f"Background job not found: {job_id}")
+            if row["status"] not in {"succeeded", "failed", "cancelled"}:
+                conn.execute(
+                    self._text(
+                        """
+                        UPDATE background_jobs
+                        SET status = 'cancelled',
+                            error = :reason,
+                            finished_at = :finished_at,
+                            heartbeat_at = :heartbeat_at
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "id": job_id,
+                        "reason": reason,
+                        "finished_at": now,
+                        "heartbeat_at": now,
+                    },
+                )
+        return self.get(job_id)
+
+    def recover_interrupted(self, *, reason: str) -> int:
+        now = _now()
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                self._text(
+                    """
+                    UPDATE background_jobs
+                    SET status = 'failed',
+                        error = :reason,
+                        finished_at = :finished_at,
+                        heartbeat_at = :heartbeat_at
+                    WHERE status IN ('queued', 'running')
+                    """
+                ),
+                {"reason": reason, "finished_at": now, "heartbeat_at": now},
+            )
+        return int(result.rowcount or 0)
 
     def list(self, *, owner_id: str | None = None, project_id: str | None = None) -> list[BackgroundJob]:
         where = []
@@ -156,6 +262,17 @@ class SqlBackgroundJobStore:
             rows = conn.execute(self._text(sql), params).mappings().all()
         return [_job_from_row(row) for row in rows]
 
+    def _ensure_column(self, conn, table: str, column: str, definition: str) -> None:
+        if self.engine.dialect.name == "postgresql":
+            conn.execute(
+                self._text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+            )
+            return
+        try:
+            conn.execute(self._text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
+        except Exception:
+            return
+
 
 class BackgroundTaskQueue:
     def __init__(self) -> None:
@@ -168,6 +285,20 @@ class BackgroundTaskQueue:
             self.store = InMemoryBackgroundJobStore()
         self.store.setup()
         self._semaphore = BoundedSemaphore(max(1, settings.background_worker_concurrency))
+        self.backend = settings.task_queue_backend.lower()
+
+    def recover_interrupted_jobs(self) -> int:
+        settings = get_settings()
+        if not settings.background_job_recovery_enabled:
+            return 0
+        if self.backend != "thread":
+            return 0
+        return self.store.recover_interrupted(
+            reason="Interrupted by service restart; please retry this task."
+        )
+
+    def cancel(self, job_id: str, *, reason: str = "cancelled") -> BackgroundJob:
+        return self.store.cancel(job_id, reason=reason)
 
     def submit(
         self,
@@ -191,14 +322,19 @@ class BackgroundTaskQueue:
 
     def _run(self, *, job_id: str, handler: Callable[..., None], kwargs: dict[str, Any]) -> None:
         with self._semaphore:
+            if self.store.get(job_id).status == "cancelled":
+                return
             self.store.mark(job_id, "running")
             try:
+                self.store.heartbeat(job_id)
                 handler(**kwargs)
             except Exception as exc:
-                self.store.mark(job_id, "failed", error=f"{type(exc).__name__}: {exc}")
+                if self.store.get(job_id).status != "cancelled":
+                    self.store.mark(job_id, "failed", error=f"{type(exc).__name__}: {exc}")
                 raise
             else:
-                self.store.mark(job_id, "succeeded")
+                if self.store.get(job_id).status != "cancelled":
+                    self.store.mark(job_id, "succeeded")
 
 
 def _params(job: BackgroundJob) -> dict[str, Any]:
@@ -213,6 +349,7 @@ def _params(job: BackgroundJob) -> dict[str, Any]:
         "created_at": job.created_at,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
+        "heartbeat_at": job.heartbeat_at,
     }
 
 
@@ -228,6 +365,7 @@ def _job_from_row(row: Any) -> BackgroundJob:
         created_at=row["created_at"],
         started_at=row["started_at"],
         finished_at=row["finished_at"],
+        heartbeat_at=row.get("heartbeat_at") if hasattr(row, "get") else row["heartbeat_at"],
     )
 
 

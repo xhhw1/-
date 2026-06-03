@@ -66,3 +66,14 @@ GET http://127.0.0.1:8000/health
 ```
 
 业务数据和 LangGraph 中断恢复状态都会写入同一个 PostgreSQL 实例，但使用不同表。
+
+## 后台任务恢复
+
+本地开发默认使用 `TASK_QUEUE_BACKEND=thread`。线程任务无法跨进程继续运行，因此 API 重启时会把旧进程遗留的 `queued/running` 后台任务标记为 `failed`，并提示用户重试：
+
+```env
+TASK_QUEUE_BACKEND=thread
+BACKGROUND_JOB_RECOVERY_ENABLED=true
+```
+
+后台任务表会记录 `heartbeat_at`，前端和运维接口可以据此判断任务是否仍在推进。

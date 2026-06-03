@@ -613,9 +613,36 @@ def list_background_tasks(
             "created_at": job.created_at,
             "started_at": job.started_at,
             "finished_at": job.finished_at,
+            "heartbeat_at": job.heartbeat_at,
         }
         for job in jobs
     ]
+
+
+@router.post("/tasks/{job_id}/cancel")
+def cancel_background_task(
+    job_id: str,
+    user: AuthUser = Depends(require_current_user),
+) -> dict[str, object]:
+    try:
+        job = background_task_queue.store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if job.project_id:
+        try:
+            _project_for_user(job.project_id, user)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    elif job.owner_id and job.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Task is not owned by current user.")
+    cancelled = background_task_queue.cancel(job_id, reason="cancelled_by_user")
+    return {
+        "id": cancelled.id,
+        "status": cancelled.status,
+        "error": cancelled.error,
+        "finished_at": cancelled.finished_at,
+        "heartbeat_at": cancelled.heartbeat_at,
+    }
 
 
 @router.get("/knowledge", response_model=list[KnowledgeBaseEntry])

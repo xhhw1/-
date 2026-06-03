@@ -15,6 +15,9 @@ from ai_visual_agent.services.integration_health import build_integration_health
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    from ai_visual_agent.services.task_queue import background_task_queue
+
+    background_task_queue.recover_interrupted_jobs()
     yield
     from ai_visual_agent.services.workflow_engine import workflow_engine
 
@@ -58,6 +61,7 @@ def create_app() -> FastAPI:
             "memory_embedding_dim": settings.memory_embedding_dim,
             "auth_enabled": settings.auth_enabled,
             "admin_email": settings.admin_email,
+            "task_queue_backend": settings.task_queue_backend,
         }
 
     @app.get("/health/integrations", response_model=IntegrationHealthReport)

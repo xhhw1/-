@@ -57,6 +57,7 @@ export interface BackgroundTask {
   created_at?: string;
   started_at?: string | null;
   finished_at?: string | null;
+  heartbeat_at?: string | null;
 }
 
 export interface ConversationSummary {

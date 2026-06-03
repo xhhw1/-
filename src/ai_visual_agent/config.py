@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     auth_token_ttl_minutes: int = 60 * 24
     task_queue_backend: str = "thread"
     background_worker_concurrency: int = 4
+    background_job_recovery_enabled: bool = True
     project_store_backend: str = "sqlite"
     graph_checkpoint_backend: str = "memory"
     document_parser_backend: str = "local"
