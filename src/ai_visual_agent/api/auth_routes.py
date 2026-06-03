@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 
-from ai_visual_agent.api.dependencies import require_admin_dependency, require_current_user
+from ai_visual_agent.api.dependencies import AUTH_COOKIE_NAME, require_admin_dependency, require_current_user
+from ai_visual_agent.config import get_settings
 from ai_visual_agent.domain import (
     AuthLoginRequest,
     AuthTokenResponse,
@@ -18,18 +19,27 @@ auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @auth_router.post("/login", response_model=AuthTokenResponse)
-def login(request: AuthLoginRequest) -> AuthTokenResponse:
+def login(request: AuthLoginRequest, response: Response) -> AuthTokenResponse:
     try:
         user = authenticate_admin(request.email, request.password)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
-    return AuthTokenResponse(access_token=issue_access_token(user), user=user)
+    token = issue_access_token(user)
+    _set_auth_cookie(response, token)
+    return AuthTokenResponse(access_token=token, user=user)
 
 
 @auth_router.get("/me", response_model=AuthUser)
-def me(user: AuthUser = Depends(require_current_user)) -> AuthUser:
+def me(
+    response: Response,
+    user: AuthUser = Depends(require_current_user),
+    authorization: str | None = Header(default=None),
+) -> AuthUser:
+    token = _bearer_token(authorization)
+    if token:
+        _set_auth_cookie(response, token)
     return user
 
 
@@ -59,3 +69,22 @@ def update_user(
         return public_user(user_store.update(user_id, request))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    settings = get_settings()
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=token,
+        max_age=settings.auth_token_ttl_minutes * 60,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        path="/",
+    )
+
+
+def _bearer_token(authorization: str | None) -> str:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return ""
+    return authorization.split(" ", 1)[1].strip()
