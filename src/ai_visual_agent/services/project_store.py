@@ -435,10 +435,25 @@ class SqlProjectStore:
     def list(self, owner_id: str | None = None) -> list[ProjectRecord]:
         with self.engine.begin() as conn:
             if owner_id:
-                project_rows = conn.execute(
-                    self._text("SELECT * FROM projects WHERE owner_id = :owner_id ORDER BY created_at DESC"),
-                    {"owner_id": owner_id},
-                ).mappings().all()
+                owner = _owner_id(owner_id)
+                if owner == _owner_id():
+                    project_rows = conn.execute(
+                        self._text(
+                            """
+                            SELECT * FROM projects
+                            WHERE owner_id = :owner_id OR owner_id = ''
+                            ORDER BY created_at DESC
+                            """
+                        ),
+                        {"owner_id": owner},
+                    ).mappings().all()
+                else:
+                    project_rows = conn.execute(
+                        self._text(
+                            "SELECT * FROM projects WHERE owner_id = :owner_id ORDER BY created_at DESC"
+                        ),
+                        {"owner_id": owner},
+                    ).mappings().all()
             else:
                 project_rows = conn.execute(
                     self._text("SELECT * FROM projects ORDER BY created_at DESC")

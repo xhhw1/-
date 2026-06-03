@@ -49,3 +49,29 @@ def test_sql_project_store_persists_project_and_assets(tmp_path) -> None:
         metadata_patch={"image_analysis": {"image_role": "product_image"}},
     )
     assert updated_asset.metadata["image_analysis"]["image_role"] == "product_image"
+
+
+def test_sql_project_store_lists_legacy_blank_owner_for_admin(tmp_path) -> None:
+    store = SqlProjectStore(f"sqlite:///{tmp_path / 'store.db'}")
+    store.setup()
+
+    legacy = store.create(
+        ProjectCreateRequest(
+            workflow_type="packaging",
+            brief=ProjectBrief(category="legacy useful project"),
+        )
+    )
+    other = store.create(
+        ProjectCreateRequest(
+            owner_id="someone-else@example.com",
+            workflow_type="packaging",
+            brief=ProjectBrief(category="other project"),
+        )
+    )
+    with store.engine.begin() as conn:
+        conn.execute(store._text("UPDATE projects SET owner_id = '' WHERE id = :id"), {"id": legacy.id})
+
+    visible = store.list(owner_id="1173817292@qq.com")
+
+    assert legacy.id in {project.id for project in visible}
+    assert other.id not in {project.id for project in visible}

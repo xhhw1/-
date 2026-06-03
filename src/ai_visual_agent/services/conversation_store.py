@@ -318,12 +318,25 @@ class SqlConversationStore:
     def list_sessions(self, owner_id: str | None = None) -> list[ConversationSession]:
         with self.engine.begin() as conn:
             if owner_id:
-                rows = conn.execute(
-                    self._text(
-                        "SELECT * FROM conversation_sessions WHERE owner_id = :owner_id ORDER BY updated_at DESC"
-                    ),
-                    {"owner_id": owner_id},
-                ).mappings().all()
+                owner = _owner_id(owner_id)
+                if owner == _owner_id():
+                    rows = conn.execute(
+                        self._text(
+                            """
+                            SELECT * FROM conversation_sessions
+                            WHERE owner_id = :owner_id OR owner_id = ''
+                            ORDER BY updated_at DESC
+                            """
+                        ),
+                        {"owner_id": owner},
+                    ).mappings().all()
+                else:
+                    rows = conn.execute(
+                        self._text(
+                            "SELECT * FROM conversation_sessions WHERE owner_id = :owner_id ORDER BY updated_at DESC"
+                        ),
+                        {"owner_id": owner},
+                    ).mappings().all()
             else:
                 rows = conn.execute(
                     self._text("SELECT * FROM conversation_sessions ORDER BY updated_at DESC")

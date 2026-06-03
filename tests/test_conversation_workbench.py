@@ -669,6 +669,26 @@ def test_sql_conversation_store_persists_messages_gates_and_confirmed_context(tm
     assert reopened.pending_review_gate(session.id).id == gate.id
 
 
+def test_sql_conversation_store_lists_legacy_blank_owner_for_admin(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'conversation.db'}"
+    store = SqlConversationStore(database_url)
+    store.setup()
+    legacy = store.create_session(project_id="legacy-project", title="legacy useful project", workflow_type="packaging")
+    other = store.create_session(
+        project_id="other-project",
+        owner_id="someone-else@example.com",
+        title="other project",
+        workflow_type="packaging",
+    )
+    with store.engine.begin() as conn:
+        conn.execute(store._text("UPDATE conversation_sessions SET owner_id = '' WHERE id = :id"), {"id": legacy.id})
+
+    visible = store.list_sessions(owner_id="1173817292@qq.com")
+
+    assert legacy.id in {session.id for session in visible}
+    assert other.id not in {session.id for session in visible}
+
+
 def test_batch_delete_conversations_removes_backend_project_data(monkeypatch, tmp_path) -> None:
     from ai_visual_agent.services.storage import asset_storage
 
