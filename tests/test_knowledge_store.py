@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
-from ai_visual_agent.domain import KnowledgeBaseCreateRequest, KnowledgeBaseUpdateRequest
+from ai_visual_agent.api.dependencies import require_current_user
+from ai_visual_agent.domain import AuthUser, KnowledgeBaseCreateRequest, KnowledgeBaseUpdateRequest
 from ai_visual_agent.main import app
 from ai_visual_agent.services.knowledge_store import SqlKnowledgeStore, load_default_knowledge_requests
 
@@ -116,3 +117,39 @@ def test_knowledge_api_crud_search_and_project_preview() -> None:
 
     delete_response = client.delete(f"/api/knowledge/{entry_id}")
     assert delete_response.status_code == 200
+
+
+def test_knowledge_write_requires_admin_but_read_allows_member() -> None:
+    app.dependency_overrides[require_current_user] = lambda: AuthUser(
+        id="member@example.com",
+        email="member@example.com",
+        role="member",
+    )
+    try:
+        client = TestClient(app)
+
+        list_response = client.get("/api/knowledge")
+        assert list_response.status_code == 200
+
+        search_response = client.post(
+            "/api/knowledge/search",
+            json={"query": "toy", "limit": 1},
+        )
+        assert search_response.status_code == 200
+
+        create_response = client.post(
+            "/api/knowledge",
+            json={
+                "id": "kb_member_forbidden",
+                "title": "Member forbidden write",
+                "domain": "packaging",
+                "workflow_type": "packaging",
+                "content": {},
+            },
+        )
+        assert create_response.status_code == 403
+
+        delete_response = client.delete("/api/knowledge/toy_entertainment_offline_packaging_v1")
+        assert delete_response.status_code == 403
+    finally:
+        app.dependency_overrides.pop(require_current_user, None)

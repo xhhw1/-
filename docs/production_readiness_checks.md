@@ -61,6 +61,40 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
 ```
 
+## 生产烟测脚本
+
+部署完成后可以运行：
+
+```powershell
+python scripts/production_smoke.py --base-url http://127.0.0.1:8000
+```
+
+如果 `AUTH_ENABLED=true`，脚本会读取 `ADMIN_EMAIL` / `ADMIN_PASSWORD`，也可以显式传入：
+
+```powershell
+python scripts/production_smoke.py --base-url http://127.0.0.1:8000 --email 1173817292@qq.com --password "<password>"
+```
+
+默认检查：
+
+- `/health`
+- `/health/ready`
+- `/api/auth/login` 与 `/api/auth/me`（启用鉴权时）
+- `/api/tasks`
+- `/api/projects`
+
+需要验证项目数据库写入和删除时，再加：
+
+```powershell
+python scripts/production_smoke.py --base-url http://127.0.0.1:8000 --create-project
+```
+
+如果正在排查 Worker 未上线，可以临时允许 readiness 非 ready 后继续检查 API 其他能力：
+
+```powershell
+python scripts/production_smoke.py --allow-not-ready
+```
+
 ## 常见问题
 
 - `database failed`：检查 `DATABASE_URL`、Postgres 容器状态和端口占用。

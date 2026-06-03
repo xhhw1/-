@@ -51,7 +51,7 @@ from ai_visual_agent.domain import (
     SegmentationResult,
     WorkflowResult,
 )
-from ai_visual_agent.api.dependencies import require_current_user
+from ai_visual_agent.api.dependencies import require_admin_dependency, require_current_user
 from ai_visual_agent.services.audit_store import audit_store
 from ai_visual_agent.services.asset_memory import register_asset_memory
 from ai_visual_agent.services.asset_processing import (
@@ -719,7 +719,10 @@ def list_knowledge_entries(
 
 
 @router.post("/knowledge", response_model=KnowledgeBaseEntry)
-def create_knowledge_entry(request: KnowledgeBaseCreateRequest) -> KnowledgeBaseEntry:
+def create_knowledge_entry(
+    request: KnowledgeBaseCreateRequest,
+    _admin: AuthUser = Depends(require_admin_dependency),
+) -> KnowledgeBaseEntry:
     try:
         return knowledge_store.create(request)
     except ValueError as exc:
@@ -735,7 +738,11 @@ def get_knowledge_entry(entry_id: str) -> KnowledgeBaseEntry:
 
 
 @router.patch("/knowledge/{entry_id}", response_model=KnowledgeBaseEntry)
-def update_knowledge_entry(entry_id: str, request: KnowledgeBaseUpdateRequest) -> KnowledgeBaseEntry:
+def update_knowledge_entry(
+    entry_id: str,
+    request: KnowledgeBaseUpdateRequest,
+    _admin: AuthUser = Depends(require_admin_dependency),
+) -> KnowledgeBaseEntry:
     try:
         return knowledge_store.update(entry_id, request)
     except KeyError as exc:
@@ -743,7 +750,10 @@ def update_knowledge_entry(entry_id: str, request: KnowledgeBaseUpdateRequest) -
 
 
 @router.delete("/knowledge/{entry_id}", response_model=KnowledgeBaseEntry)
-def delete_knowledge_entry(entry_id: str) -> KnowledgeBaseEntry:
+def delete_knowledge_entry(
+    entry_id: str,
+    _admin: AuthUser = Depends(require_admin_dependency),
+) -> KnowledgeBaseEntry:
     try:
         return knowledge_store.delete(entry_id)
     except KeyError as exc:
