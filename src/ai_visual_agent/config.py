@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     auth_token_ttl_minutes: int = 60 * 24
     task_queue_backend: str = "thread"
     task_queue_redis_queue_name: str = "ai_visual_agent:jobs"
+    worker_heartbeat_key_prefix: str = "ai_visual_agent:workers"
+    worker_heartbeat_ttl_seconds: int = 30
     background_worker_concurrency: int = 4
     background_job_recovery_enabled: bool = True
     rate_limit_enabled: bool = True

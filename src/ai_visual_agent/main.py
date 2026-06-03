@@ -2,15 +2,16 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from ai_visual_agent.api.auth_routes import auth_router
 from ai_visual_agent.api.routes import router
 from ai_visual_agent.config import get_settings
-from ai_visual_agent.domain import IntegrationHealthReport
+from ai_visual_agent.domain import IntegrationHealthReport, ReadinessReport
 from ai_visual_agent.services.integration_health import build_integration_health_report
+from ai_visual_agent.services.readiness import build_readiness_report
 
 
 @asynccontextmanager
@@ -71,6 +72,13 @@ def create_app() -> FastAPI:
     @app.get("/health/integrations", response_model=IntegrationHealthReport)
     def integration_health() -> IntegrationHealthReport:
         return build_integration_health_report(settings)
+
+    @app.get("/health/ready", response_model=ReadinessReport)
+    def readiness(response: Response) -> ReadinessReport:
+        report = build_readiness_report(settings)
+        if report.status != "ready":
+            response.status_code = 503
+        return report
 
     app.include_router(auth_router)
     app.include_router(router)

@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import json
+import os
 from pathlib import Path
+import socket
 from threading import BoundedSemaphore, Thread
-import time
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -385,14 +386,38 @@ class BackgroundTaskQueue:
             raise RuntimeError("Redis worker requires TASK_QUEUE_BACKEND=redis.")
         self.requeue_redis_jobs()
         client = self._redis()
+        instance_id = _worker_instance_id()
         while True:
+            self.record_worker_heartbeat(instance_id=instance_id)
             item = client.blpop(self.redis_queue_name, timeout=poll_timeout_seconds)
             if not item:
                 continue
+            self.record_worker_heartbeat(instance_id=instance_id)
             _queue_name, raw_job_id = item
             job_id = raw_job_id.decode("utf-8") if isinstance(raw_job_id, bytes) else str(raw_job_id)
             self._semaphore.acquire()
             Thread(target=self._run_registered_job_with_permit, kwargs={"job_id": job_id}, daemon=True).start()
+
+    def record_worker_heartbeat(self, *, instance_id: str | None = None) -> str | None:
+        if self.backend != "redis":
+            return None
+        settings = get_settings()
+        instance_id = instance_id or _worker_instance_id()
+        key = f"{settings.worker_heartbeat_key_prefix}:{instance_id}"
+        payload = {
+            "instance_id": instance_id,
+            "hostname": socket.gethostname(),
+            "pid": os.getpid(),
+            "queue": self.redis_queue_name,
+            "concurrency": settings.background_worker_concurrency,
+            "heartbeat_at": _now(),
+        }
+        self._redis().set(
+            key,
+            json.dumps(payload, ensure_ascii=False),
+            ex=max(5, int(settings.worker_heartbeat_ttl_seconds)),
+        )
+        return key
 
     def _run_registered_job_with_permit(self, *, job_id: str) -> None:
         try:
@@ -475,6 +500,34 @@ def _jsonable(value: Any) -> Any:
 
 def _missing_registered_handler(**_kwargs: Any) -> None:
     raise RuntimeError("No handler registered for this background job kind.")
+
+
+def _worker_instance_id() -> str:
+    return f"{socket.gethostname()}:{os.getpid()}"
+
+
+def list_worker_heartbeats(settings: Any | None = None) -> list[dict[str, Any]]:
+    settings = settings or get_settings()
+    try:
+        import redis
+    except ImportError as exc:  # pragma: no cover - optional dependency guard
+        raise RuntimeError("redis package is required to inspect worker heartbeats.") from exc
+
+    client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+    client.ping()
+    pattern = f"{settings.worker_heartbeat_key_prefix}:*"
+    heartbeats: list[dict[str, Any]] = []
+    for key in client.scan_iter(match=pattern, count=100):
+        raw = client.get(key)
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            payload = {"raw": raw}
+        payload["key"] = key
+        heartbeats.append(payload)
+    return heartbeats
 
 
 background_task_queue = BackgroundTaskQueue()

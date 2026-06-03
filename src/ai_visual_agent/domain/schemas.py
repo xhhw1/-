@@ -23,6 +23,7 @@ ConversationMessageType = Literal[
 ConversationReviewAction = Literal["approve", "edit", "reject", "request_more_info"]
 GoldenCheckOperator = Literal["exists", "equals", "contains", "startswith", "min_count"]
 IntegrationStatus = Literal["ready", "mock", "misconfigured", "degraded", "unknown"]
+ReadinessCheckStatus = Literal["ready", "skipped", "failed"]
 IntegrationProbeTarget = Literal[
     "all",
     "llm",
@@ -593,6 +594,22 @@ class IntegrationHealthReport(BaseModel):
     status: Literal["ok", "degraded", "misconfigured"] = "ok"
     items: list[IntegrationHealthItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class ReadinessCheck(BaseModel):
+    name: str
+    backend: str
+    status: ReadinessCheckStatus
+    required: bool = True
+    message: str = ""
+    latency_ms: int | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReadinessReport(BaseModel):
+    status: Literal["ready", "not_ready"] = "ready"
+    checks: list[ReadinessCheck] = Field(default_factory=list)
+    failures: list[str] = Field(default_factory=list)
 
 
 class IntegrationProbeRequest(BaseModel):
