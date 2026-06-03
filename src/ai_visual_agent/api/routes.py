@@ -8,6 +8,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
+from ai_visual_agent.config import get_settings
 from ai_visual_agent.domain import (
     AssetKind,
     AssetRef,
@@ -77,6 +78,11 @@ from ai_visual_agent.services.orchestrator_agent import list_agent_messages, run
 from ai_visual_agent.services.project_detail import build_project_detail
 from ai_visual_agent.services.prompt_registry import get_prompt_registry
 from ai_visual_agent.services.project_store import project_store
+from ai_visual_agent.services.rate_limiter import (
+    RateLimitExceeded,
+    RateLimiterUnavailable,
+    enforce_rate_limit,
+)
 from ai_visual_agent.services.segmentation import segment_image_asset
 from ai_visual_agent.services.storage import asset_storage
 from ai_visual_agent.services.memory_store import get_memory_store
@@ -93,11 +99,34 @@ def _project_for_user(project_id: str, user: AuthUser) -> ProjectRecord:
     return project
 
 
+def _rate_limit_or_429(*, user: AuthUser, scope: str, limit: int) -> None:
+    try:
+        enforce_rate_limit(scope=scope, identity=user.id, limit=limit)
+    except RateLimitExceeded as exc:
+        retry_after = str(exc.decision.retry_after_seconds)
+        raise HTTPException(
+            status_code=429,
+            detail=exc.decision.to_detail(),
+            headers={"Retry-After": retry_after},
+        ) from exc
+    except RateLimiterUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Rate limit backend is unavailable.",
+                "scope": scope,
+                "backend": exc.backend,
+            },
+        ) from exc
+
+
 @router.post("/conversations", response_model=ConversationDetailResponse)
 def create_conversation_session(
     request: ConversationCreateRequest,
     user: AuthUser = Depends(require_current_user),
 ) -> ConversationDetailResponse:
+    settings = get_settings()
+    _rate_limit_or_429(user=user, scope="conversation_create", limit=settings.rate_limit_default_per_minute)
     return create_conversation(request, owner_id=user.id)
 
 
@@ -147,6 +176,8 @@ def post_conversation_message(
     request: ConversationMessageCreateRequest,
     user: AuthUser = Depends(require_current_user),
 ) -> ConversationDetailResponse:
+    settings = get_settings()
+    _rate_limit_or_429(user=user, scope="agent_message", limit=settings.rate_limit_agent_per_minute)
     try:
         return handle_user_message(session_id, request, owner_id=user.id)
     except KeyError as exc:
@@ -162,6 +193,8 @@ async def upload_conversation_file(
     file: UploadFile = File(...),
     user: AuthUser = Depends(require_current_user),
 ) -> ConversationDetailResponse:
+    settings = get_settings()
+    _rate_limit_or_429(user=user, scope="asset_upload", limit=settings.rate_limit_upload_per_minute)
     try:
         return await upload_conversation_asset(session_id=session_id, kind=kind, upload=file, owner_id=user.id)
     except KeyError as exc:
@@ -177,6 +210,8 @@ def resolve_conversation_review_gate(
     request: ConversationReviewActionRequest,
     user: AuthUser = Depends(require_current_user),
 ) -> ConversationDetailResponse:
+    settings = get_settings()
+    _rate_limit_or_429(user=user, scope="review_action", limit=settings.rate_limit_agent_per_minute)
     try:
         return handle_review_gate_action(session_id=session_id, gate_id=gate_id, request=request, owner_id=user.id)
     except KeyError as exc:
@@ -476,6 +511,8 @@ def analyze_project_asset(
     asset_id: str,
     user: AuthUser = Depends(require_current_user),
 ) -> ImageAssetAnalysis:
+    settings = get_settings()
+    _rate_limit_or_429(user=user, scope="asset_analysis", limit=settings.rate_limit_agent_per_minute)
     try:
         project = _project_for_user(project_id, user)
     except KeyError as exc:
@@ -510,6 +547,8 @@ def segment_project_asset(
     mode: str = "auto",
     user: AuthUser = Depends(require_current_user),
 ) -> SegmentationResult:
+    settings = get_settings()
+    _rate_limit_or_429(user=user, scope="asset_segmentation", limit=settings.rate_limit_agent_per_minute)
     try:
         project = _project_for_user(project_id, user)
     except KeyError as exc:
@@ -536,6 +575,8 @@ def segment_project_asset(
 
 @router.post("/workflows/{project_id}/start", response_model=WorkflowResult)
 def start_workflow(project_id: str, user: AuthUser = Depends(require_current_user)) -> WorkflowResult:
+    settings = get_settings()
+    _rate_limit_or_429(user=user, scope="workflow_start", limit=settings.rate_limit_agent_per_minute)
     try:
         project = _project_for_user(project_id, user)
     except KeyError as exc:
@@ -552,6 +593,8 @@ def resume_workflow(
     review: HumanReviewInput,
     user: AuthUser = Depends(require_current_user),
 ) -> WorkflowResult:
+    settings = get_settings()
+    _rate_limit_or_429(user=user, scope="workflow_resume", limit=settings.rate_limit_agent_per_minute)
     try:
         _project_for_user(project_id, user)
     except KeyError as exc:

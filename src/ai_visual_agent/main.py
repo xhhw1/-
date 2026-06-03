@@ -62,6 +62,9 @@ def create_app() -> FastAPI:
             "auth_enabled": settings.auth_enabled,
             "admin_email": settings.admin_email,
             "task_queue_backend": settings.task_queue_backend,
+            "rate_limit_enabled": settings.rate_limit_enabled,
+            "rate_limit_backend": settings.rate_limit_backend,
+            "image_generation_max_concurrent": settings.image_generation_max_concurrent,
         }
 
     @app.get("/health/integrations", response_model=IntegrationHealthReport)

@@ -94,3 +94,27 @@ PATCH /api/auth/users/{user_id}
 ```http
 Authorization: Bearer <access_token>
 ```
+
+## API 限流与生图并发保护
+
+生产环境建议保持以下配置开启，避免多人同时触发高成本 Agent 或 Image API：
+
+```env
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_BACKEND=redis
+RATE_LIMIT_DEFAULT_PER_MINUTE=120
+RATE_LIMIT_AGENT_PER_MINUTE=30
+RATE_LIMIT_UPLOAD_PER_MINUTE=60
+RATE_LIMIT_IMAGE_GENERATION_PER_MINUTE=6
+RATE_LIMIT_IMAGE_GENERATION_GLOBAL_PER_MINUTE=20
+IMAGE_GENERATION_MAX_CONCURRENT=1
+IMAGE_GENERATION_ACQUIRE_TIMEOUT_SECONDS=20
+```
+
+- `RATE_LIMIT_BACKEND=redis`：多 API 实例共享限流计数；本地单机可用 `memory`。
+- `RATE_LIMIT_AGENT_PER_MINUTE`：限制对话、审核确认、旧工作流启动/继续等 Agent 入口。
+- `RATE_LIMIT_IMAGE_GENERATION_PER_MINUTE`：限制单项目/单身份的生图频率。
+- `RATE_LIMIT_IMAGE_GENERATION_GLOBAL_PER_MINUTE`：限制全局生图频率，防止额度瞬间打爆。
+- `IMAGE_GENERATION_MAX_CONCURRENT`：限制真实 Image API 同时调用数；建议先保持 `1`，稳定后再上调。
+
+`/health` 会返回 `rate_limit_enabled`、`rate_limit_backend` 和 `image_generation_max_concurrent`，可用于确认运行态配置。

@@ -20,6 +20,15 @@ class Settings(BaseSettings):
     task_queue_backend: str = "thread"
     background_worker_concurrency: int = 4
     background_job_recovery_enabled: bool = True
+    rate_limit_enabled: bool = True
+    rate_limit_backend: str = "memory"
+    rate_limit_default_per_minute: int = 120
+    rate_limit_agent_per_minute: int = 30
+    rate_limit_upload_per_minute: int = 60
+    rate_limit_image_generation_per_minute: int = 6
+    rate_limit_image_generation_global_per_minute: int = 20
+    image_generation_max_concurrent: int = 1
+    image_generation_acquire_timeout_seconds: float = 20.0
     project_store_backend: str = "sqlite"
     graph_checkpoint_backend: str = "memory"
     document_parser_backend: str = "local"

@@ -22,6 +22,7 @@ def _configure_isolated_runtime() -> None:
     os.environ["LOCAL_DATABASE_URL"] = f"sqlite:///{root / 'vision_agent_test.db'}"
     os.environ["STORAGE_DIR"] = str(root / "data")
     os.environ["AUTH_ENABLED"] = "false"
+    os.environ["RATE_LIMIT_ENABLED"] = "false"
     os.environ["LLM_BACKEND"] = "mock"
     os.environ["IMAGE_GENERATION_BACKEND"] = "mock"
     os.environ["MULTIMODAL_BACKEND"] = "mock"

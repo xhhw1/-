@@ -14,6 +14,7 @@ from ai_visual_agent.config import get_settings
 from ai_visual_agent.domain import AssetRef, GenerationOutput, GenerationOutputItem
 from ai_visual_agent.services.audit_store import audit_store
 from ai_visual_agent.services.project_store import project_store
+from ai_visual_agent.services.rate_limiter import image_generation_budget
 from ai_visual_agent.services.storage import asset_storage
 
 
@@ -85,15 +86,16 @@ class OpenAIImageGenerationProvider:
             job=job,
             model=settings.openai_image_model,
         )
-        response = _generate_with_reference_if_available(
-            settings=settings,
-            client=client,
-            job=job,
-            prompt=prompt,
-            model=settings.openai_image_model,
-            size=size,
-            quality=settings.image_generation_quality,
-        )
+        with image_generation_budget(identity=job.project_id):
+            response = _generate_with_reference_if_available(
+                settings=settings,
+                client=client,
+                job=job,
+                prompt=prompt,
+                model=settings.openai_image_model,
+                size=size,
+                quality=settings.image_generation_quality,
+            )
         image = _image_bytes_from_response(response)
         return asset_storage.save_bytes(
             project_id=job.project_id,
