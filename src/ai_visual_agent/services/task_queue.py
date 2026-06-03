@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 from threading import BoundedSemaphore, Thread
+import time
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -17,6 +18,13 @@ from ai_visual_agent.services.persistence_config import (
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+_BACKGROUND_HANDLERS: dict[str, Callable[..., None]] = {}
+
+
+def register_background_handler(kind: str, handler: Callable[..., None]) -> None:
+    _BACKGROUND_HANDLERS[kind] = handler
 
 
 @dataclass
@@ -286,6 +294,8 @@ class BackgroundTaskQueue:
         self.store.setup()
         self._semaphore = BoundedSemaphore(max(1, settings.background_worker_concurrency))
         self.backend = settings.task_queue_backend.lower()
+        self.redis_queue_name = settings.task_queue_redis_queue_name
+        self._redis_client: Any | None = None
 
     def recover_interrupted_jobs(self) -> int:
         settings = get_settings()
@@ -317,24 +327,95 @@ class BackgroundTaskQueue:
                 payload={key: _jsonable(value) for key, value in kwargs.items()},
             )
         )
+        if self.backend == "redis":
+            try:
+                self._enqueue_redis(job.id)
+            except Exception as exc:
+                self.store.mark(job.id, "failed", error=f"{type(exc).__name__}: {exc}")
+                raise
+            return job
         Thread(target=self._run, kwargs={"job_id": job.id, "handler": handler, "kwargs": kwargs}, daemon=True).start()
         return job
 
     def _run(self, *, job_id: str, handler: Callable[..., None], kwargs: dict[str, Any]) -> None:
         with self._semaphore:
+            self._execute(job_id=job_id, handler=handler, kwargs=kwargs)
+
+    def _execute(self, *, job_id: str, handler: Callable[..., None], kwargs: dict[str, Any]) -> None:
+        if self.store.get(job_id).status == "cancelled":
+            return
+        self.store.mark(job_id, "running")
+        try:
+            self.store.heartbeat(job_id)
+            handler(**kwargs)
+        except Exception as exc:
             if self.store.get(job_id).status == "cancelled":
                 return
-            self.store.mark(job_id, "running")
-            try:
-                self.store.heartbeat(job_id)
-                handler(**kwargs)
-            except Exception as exc:
-                if self.store.get(job_id).status != "cancelled":
-                    self.store.mark(job_id, "failed", error=f"{type(exc).__name__}: {exc}")
-                raise
-            else:
-                if self.store.get(job_id).status != "cancelled":
-                    self.store.mark(job_id, "succeeded")
+            self.store.mark(job_id, "failed", error=f"{type(exc).__name__}: {exc}")
+            raise
+        else:
+            if self.store.get(job_id).status != "cancelled":
+                self.store.mark(job_id, "succeeded")
+
+    def run_registered_job(self, job_id: str) -> None:
+        job = self.store.get(job_id)
+        handler = _BACKGROUND_HANDLERS.get(job.kind)
+        if handler is None:
+            self.store.mark(job_id, "failed", error=f"No handler registered for background job kind: {job.kind}")
+            return
+        self._execute(job_id=job_id, handler=handler, kwargs=job.payload)
+
+    def run_worker_forever(self, *, poll_timeout_seconds: int = 5) -> None:
+        if self.backend != "redis":
+            raise RuntimeError("Redis worker requires TASK_QUEUE_BACKEND=redis.")
+        self.requeue_redis_jobs()
+        client = self._redis()
+        while True:
+            item = client.blpop(self.redis_queue_name, timeout=poll_timeout_seconds)
+            if not item:
+                continue
+            _queue_name, raw_job_id = item
+            job_id = raw_job_id.decode("utf-8") if isinstance(raw_job_id, bytes) else str(raw_job_id)
+            self._semaphore.acquire()
+            Thread(target=self._run_registered_job_with_permit, kwargs={"job_id": job_id}, daemon=True).start()
+
+    def _run_registered_job_with_permit(self, *, job_id: str) -> None:
+        try:
+            self.run_registered_job(job_id)
+        finally:
+            self._semaphore.release()
+
+    def requeue_redis_jobs(self) -> int:
+        if self.backend != "redis":
+            return 0
+        count = 0
+        client = self._redis()
+        for job in self.store.list():
+            if job.status == "running":
+                self.store.mark(
+                    job.id,
+                    "failed",
+                    error="Interrupted while running in Redis worker; please retry this task.",
+                )
+                continue
+            if job.status == "queued":
+                client.rpush(self.redis_queue_name, job.id)
+                count += 1
+        return count
+
+    def _enqueue_redis(self, job_id: str) -> None:
+        self._redis().rpush(self.redis_queue_name, job_id)
+
+    def _redis(self) -> Any:
+        if self._redis_client is not None:
+            return self._redis_client
+        try:
+            import redis
+        except ImportError as exc:  # pragma: no cover - optional dependency guard
+            raise RuntimeError("Redis task queue requires the redis package.") from exc
+        self._redis_client = redis.Redis.from_url(get_settings().redis_url, decode_responses=True)
+        self._redis_client.ping()
+        return self._redis_client
 
 
 def _params(job: BackgroundJob) -> dict[str, Any]:

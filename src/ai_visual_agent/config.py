@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "change-me-local-dev-secret"
     auth_token_ttl_minutes: int = 60 * 24
     task_queue_backend: str = "thread"
+    task_queue_redis_queue_name: str = "ai_visual_agent:jobs"
     background_worker_concurrency: int = 4
     background_job_recovery_enabled: bool = True
     rate_limit_enabled: bool = True

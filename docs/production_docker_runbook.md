@@ -24,7 +24,8 @@ JWT_SECRET_KEY=请设置一个至少32位的随机字符串
 
 PROJECT_STORE_BACKEND=postgres
 GRAPH_CHECKPOINT_BACKEND=postgres
-TASK_QUEUE_BACKEND=thread
+TASK_QUEUE_BACKEND=redis
+TASK_QUEUE_REDIS_QUEUE_NAME=ai_visual_agent:jobs
 BACKGROUND_WORKER_CONCURRENCY=4
 BACKGROUND_JOB_RECOVERY_ENABLED=true
 STORAGE_BACKEND=s3
@@ -118,3 +119,14 @@ IMAGE_GENERATION_ACQUIRE_TIMEOUT_SECONDS=20
 - `IMAGE_GENERATION_MAX_CONCURRENT`：限制真实 Image API 同时调用数；建议先保持 `1`，稳定后再上调。
 
 `/health` 会返回 `rate_limit_enabled`、`rate_limit_backend` 和 `image_generation_max_concurrent`，可用于确认运行态配置。
+
+## Redis 后台任务队列
+
+生产环境使用 `TASK_QUEUE_BACKEND=redis`：
+
+- `api` 服务只创建 `background_jobs` 记录并把 `job_id` 推入 Redis 队列。
+- `worker` 服务通过 `python -m ai_visual_agent.worker` 消费队列，并按 `BACKGROUND_WORKER_CONCURRENCY` 控制并发。
+- Redis 队列中只保存 `job_id`；任务参数保存在数据库 `background_jobs.payload_json`，避免把 Python 函数对象或大 payload 放入 Redis。
+- Worker 启动时会重新入队仍处于 `queued` 的任务，并把遗留的 `running` 任务标记为失败，提示用户重试。
+
+本地开发仍可设置 `TASK_QUEUE_BACKEND=thread`，但该模式只适合单机调试。

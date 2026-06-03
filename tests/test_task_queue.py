@@ -7,8 +7,26 @@ from fastapi.testclient import TestClient
 from ai_visual_agent.api.dependencies import require_current_user
 from ai_visual_agent.domain import AuthUser
 from ai_visual_agent.main import app
-from ai_visual_agent.services.task_queue import BackgroundJob, InMemoryBackgroundJobStore, SqlBackgroundJobStore
+from ai_visual_agent.services.task_queue import (
+    BackgroundJob,
+    BackgroundTaskQueue,
+    InMemoryBackgroundJobStore,
+    SqlBackgroundJobStore,
+    register_background_handler,
+)
 from ai_visual_agent.services.task_queue import background_task_queue
+
+
+class FakeRedis:
+    def __init__(self) -> None:
+        self.items: list[str] = []
+
+    def ping(self) -> bool:
+        return True
+
+    def rpush(self, _queue: str, job_id: str) -> int:
+        self.items.append(job_id)
+        return len(self.items)
 
 
 def test_sql_background_job_store_recovers_interrupted_jobs(tmp_path) -> None:
@@ -78,3 +96,47 @@ def test_cancel_background_task_api_for_owned_project() -> None:
     assert response.json()["status"] == "cancelled"
     assert response.json()["error"] == "cancelled_by_user"
     assert background_task_queue.store.get(job.id).status == "cancelled"
+
+
+def test_redis_background_queue_submit_enqueues_without_running() -> None:
+    queue = BackgroundTaskQueue()
+    queue.backend = "redis"
+    fake_redis = FakeRedis()
+    queue._redis_client = fake_redis
+    called = []
+
+    job = queue.submit(
+        kind="redis_test_job",
+        handler=lambda value: called.append(value),
+        kwargs={"value": "should-not-run-in-api"},
+        owner_id="owner",
+        project_id="project",
+    )
+
+    assert fake_redis.items == [job.id]
+    assert called == []
+    assert queue.store.get(job.id).status == "queued"
+    assert queue.store.get(job.id).payload == {"value": "should-not-run-in-api"}
+
+
+def test_redis_worker_runs_registered_handler_from_payload() -> None:
+    queue = BackgroundTaskQueue()
+    called = []
+
+    def handler(value: str) -> None:
+        called.append(value)
+
+    register_background_handler("registered_test_job", handler)
+    job = queue.store.create(
+        BackgroundJob(
+            kind="registered_test_job",
+            project_id="project",
+            owner_id="owner",
+            payload={"value": "from-db-payload"},
+        )
+    )
+
+    queue.run_registered_job(job.id)
+
+    assert called == ["from-db-payload"]
+    assert queue.store.get(job.id).status == "succeeded"

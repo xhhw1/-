@@ -51,7 +51,7 @@ from ai_visual_agent.services.conversation_store import conversation_store
 from ai_visual_agent.services.memory_store import get_memory_store
 from ai_visual_agent.services.project_store import project_store
 from ai_visual_agent.services.storage import asset_storage
-from ai_visual_agent.services.task_queue import background_task_queue
+from ai_visual_agent.services.task_queue import background_task_queue, register_background_handler
 
 
 def _owner_id(value: str | None = None) -> str:
@@ -2144,6 +2144,10 @@ def _split_cn_list(value: str) -> list[str]:
         for item in value.replace("、", ",").replace("，", ",").replace("；", ",").replace(";", ",").split(",")
         if item.strip()
     ]
+
+
+register_background_handler("asset_processing", _process_assets_and_continue)
+register_background_handler("agent_run", _run_target_agent_background)
 
 
 def _review_action_copy(action: str) -> str:

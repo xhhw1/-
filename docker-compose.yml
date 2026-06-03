@@ -12,7 +12,8 @@ services:
       PROJECT_STORE_BACKEND: postgres
       GRAPH_CHECKPOINT_BACKEND: postgres
       LANGGRAPH_STRICT_MSGPACK: "true"
-      TASK_QUEUE_BACKEND: thread
+      TASK_QUEUE_BACKEND: ${TASK_QUEUE_BACKEND:-redis}
+      TASK_QUEUE_REDIS_QUEUE_NAME: ${TASK_QUEUE_REDIS_QUEUE_NAME:-ai_visual_agent:jobs}
       BACKGROUND_WORKER_CONCURRENCY: ${BACKGROUND_WORKER_CONCURRENCY:-4}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_BACKEND: ${RATE_LIMIT_BACKEND:-redis}
@@ -33,6 +34,48 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
     ports:
       - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+      - minio
+    volumes:
+      - ./data:/app/data
+
+  worker:
+    build: .
+    command: ["python", "-m", "ai_visual_agent.worker"]
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      AUTH_ENABLED: "true"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-1173817292@qq.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env before starting docker compose}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env before starting docker compose}
+      PROJECT_STORE_BACKEND: postgres
+      GRAPH_CHECKPOINT_BACKEND: postgres
+      LANGGRAPH_STRICT_MSGPACK: "true"
+      TASK_QUEUE_BACKEND: ${TASK_QUEUE_BACKEND:-redis}
+      TASK_QUEUE_REDIS_QUEUE_NAME: ${TASK_QUEUE_REDIS_QUEUE_NAME:-ai_visual_agent:jobs}
+      BACKGROUND_WORKER_CONCURRENCY: ${BACKGROUND_WORKER_CONCURRENCY:-4}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_BACKEND: ${RATE_LIMIT_BACKEND:-redis}
+      RATE_LIMIT_DEFAULT_PER_MINUTE: ${RATE_LIMIT_DEFAULT_PER_MINUTE:-120}
+      RATE_LIMIT_AGENT_PER_MINUTE: ${RATE_LIMIT_AGENT_PER_MINUTE:-30}
+      RATE_LIMIT_UPLOAD_PER_MINUTE: ${RATE_LIMIT_UPLOAD_PER_MINUTE:-60}
+      RATE_LIMIT_IMAGE_GENERATION_PER_MINUTE: ${RATE_LIMIT_IMAGE_GENERATION_PER_MINUTE:-6}
+      RATE_LIMIT_IMAGE_GENERATION_GLOBAL_PER_MINUTE: ${RATE_LIMIT_IMAGE_GENERATION_GLOBAL_PER_MINUTE:-20}
+      IMAGE_GENERATION_MAX_CONCURRENT: ${IMAGE_GENERATION_MAX_CONCURRENT:-1}
+      IMAGE_GENERATION_ACQUIRE_TIMEOUT_SECONDS: ${IMAGE_GENERATION_ACQUIRE_TIMEOUT_SECONDS:-20}
+      DATABASE_URL: postgresql+psycopg://vision_agent:vision_agent@postgres:5432/vision_agent
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-vision-agent}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
     depends_on:
       - postgres
       - redis
