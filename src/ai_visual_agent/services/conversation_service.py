@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 from typing import Any
 
@@ -99,7 +100,111 @@ def list_conversations(*, owner_id: str | None = None) -> list[ConversationDetai
             details.append(get_conversation_detail(session.id, auto_refresh_blocked_design=False, owner_id=owner))
         except KeyError:
             continue
-    return details
+    return sorted(details, key=_conversation_list_rank)
+
+
+def _conversation_list_rank(detail: ConversationDetailResponse) -> tuple[int, str]:
+    """Show useful work first without deleting old or noisy local records."""
+
+    score = 0
+    real_outputs = _existing_generated_output_count(detail)
+    missing_outputs = _missing_placeholder_output_count(detail)
+    message_count = len(detail.messages)
+    asset_count = len(detail.assets)
+    approved_count = sum(1 for gate in detail.review_gates if gate.status in {"approved", "edited"})
+
+    if real_outputs:
+        score += 10_000 + real_outputs * 100
+    if detail.session.current_stage in {"completed", "final_design_review"}:
+        score += 800
+    if asset_count:
+        score += min(asset_count, 12) * 40
+    if approved_count:
+        score += min(approved_count, 10) * 25
+    if message_count > 2:
+        score += min(message_count, 40)
+    if missing_outputs and not real_outputs:
+        score -= 3_000
+    if _looks_like_local_test_session(detail) and not real_outputs:
+        score -= 5_000
+    if message_count <= 2 and not asset_count and not real_outputs:
+        score -= 1_000
+
+    return (-score, _reverse_time_string(detail.session.updated_at))
+
+
+def _reverse_time_string(value: Any) -> str:
+    text = str(value or "")
+    # Good enough for ISO timestamps: descending time via ascending lexicographic rank.
+    return "".join(chr(255 - ord(char)) for char in text)
+
+
+def _existing_generated_output_count(detail: ConversationDetailResponse) -> int:
+    asset_ids = {asset.id for asset in detail.assets}
+    count = 0
+    for item in _generated_output_items(detail):
+        asset_id = str(item.get("asset_id") or "")
+        uri = str(item.get("uri") or "")
+        if asset_id and asset_id in asset_ids:
+            count += 1
+        elif _uri_exists(uri):
+            count += 1
+    return count
+
+
+def _missing_placeholder_output_count(detail: ConversationDetailResponse) -> int:
+    count = 0
+    for item in _generated_output_items(detail):
+        uri = str(item.get("uri") or "")
+        asset_id = str(item.get("asset_id") or "")
+        if asset_id == "asset-front" or uri.replace("\\", "/").endswith("data/assets/asset-front.png"):
+            count += 1
+    return count
+
+
+def _generated_output_items(detail: ConversationDetailResponse) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for gate in detail.review_gates:
+        if gate.type != "final_design_review":
+            continue
+        outputs = gate.payload.get("generated_outputs") if isinstance(gate.payload, dict) else None
+        raw_items = outputs.get("items") if isinstance(outputs, dict) else None
+        if isinstance(raw_items, list):
+            items.extend(item for item in raw_items if isinstance(item, dict))
+    return items
+
+
+def _uri_exists(uri: str) -> bool:
+    if not uri:
+        return False
+    if uri.startswith(("http://", "https://")):
+        return True
+    if uri.startswith("data:"):
+        return True
+    path = Path(uri)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    try:
+        return path.exists() and path.is_file()
+    except OSError:
+        return False
+
+
+def _looks_like_local_test_session(detail: ConversationDetailResponse) -> bool:
+    title = (detail.session.title or "").strip().lower()
+    test_titles = {
+        "interactive toy set",
+        "toy packaging project, extra",
+        "toy packaging project for fa",
+        "cyber mechanical pet",
+        "baby spinning toy",
+        "this is a toy packaging proj",
+        "i want packaging for a kids",
+        "product intro",
+    }
+    if title in test_titles or title.startswith("toy packaging project"):
+        return True
+    return any(message.payload.get("recovered_from_project_store") for message in detail.messages)
 
 
 def _recover_project_backed_sessions(*, owner_id: str | None = None) -> None:
