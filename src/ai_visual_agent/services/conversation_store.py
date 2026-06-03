@@ -663,6 +663,11 @@ class SqlConversationStore:
         )
 
     def _ensure_column(self, conn, table: str, column: str, definition: str) -> None:
+        if self.engine.dialect.name == "postgresql":
+            conn.execute(
+                self._text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+            )
+            return
         try:
             conn.execute(self._text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
         except Exception:
