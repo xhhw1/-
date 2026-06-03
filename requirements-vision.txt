@@ -1,0 +1,12 @@
+# Optional heavy dependencies for document parsing, OCR, CV, and visual processing.
+google-genai>=1.0.0
+llama-cloud>=0.1.0
+python-pptx>=1.0.0
+pymupdf>=1.24.0
+pypdf>=4.0.0
+pillow>=10.0.0
+opencv-python-headless>=4.9.0
+
+# Install only on machines that will run OCR locally.
+# paddleocr>=3.0.0
+# paddlepaddle>=3.0.0

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PackVision Agent</title>
+    <link rel="stylesheet" href="./styles.css?v=20260601-strategy-report" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="项目对话">
+        <div class="sb-brand">
+          <div class="logo-icon">PV</div>
+          <span class="sb-brand-name">PackVision</span>
+        </div>
+
+        <div class="sb-nav">
+          <button id="newConversationBtn" class="sb-nav-item" type="button">
+            <span class="sb-nav-icon">＋</span>
+            <span>新建项目</span>
+          </button>
+          <button id="manageProjectsBtn" class="sb-nav-item" type="button">
+            <span class="sb-nav-icon">◎</span>
+            <span id="manageProjectsLabel">管理</span>
+            <span id="conversationCount" class="sb-nav-badge">0</span>
+          </button>
+          <button id="knowledgeBtn" class="sb-nav-item" type="button">
+            <span class="sb-nav-icon">◇</span>
+            <span>知识库</span>
+          </button>
+        </div>
+
+        <div class="sidebar-search">
+          <span class="search-icon">⌕</span>
+          <span>搜索项目...</span>
+        </div>
+
+        <div id="selectionBar" class="selection-bar hidden">
+          <span id="selectedCount">已选 0 个</span>
+          <button id="selectAllBtn" type="button">全选</button>
+          <button id="batchDeleteBtn" class="danger" type="button">删除</button>
+          <button id="clearSelectionBtn" type="button">取消</button>
+        </div>
+
+        <div class="sb-sec">
+          <span>所有项目</span>
+          <button id="cleanupAssetsBtn" class="sb-sec-action" type="button" title="清理无项目素材">⌁</button>
+        </div>
+        <div id="conversationList" class="project-list"></div>
+      </aside>
+
+      <main class="chat-area" aria-live="polite">
+        <div class="mn-top">
+          <div class="mn-top-l">
+            <div class="mn-top-model">
+              <span id="conversationTitleTop">PackVision 1.0</span>
+              <span id="workflowBadge" class="mn-top-model-badge">Agent</span>
+            </div>
+          </div>
+          <div class="mn-top-r">
+            <div id="conversationProgressBadge" class="mn-top-badge hidden"></div>
+            <button id="refreshBtn" class="mn-top-icon-btn" type="button" title="刷新">↻</button>
+            <div class="nav-status">
+              <span class="status-dot"></span>
+              <span id="systemStatus">连接中</span>
+            </div>
+            <button id="deleteConversationBtn" class="mn-top-icon-btn danger" type="button" title="删除当前任务">删</button>
+          </div>
+        </div>
+
+        <div id="emptyState" class="empty-state">
+          <div class="empty-mark">PV</div>
+          <h2>新建一场视觉任务</h2>
+          <p>从一句项目描述开始，上传产品资料、竞品资料和品牌素材。主 Agent 会判断任务类型，并调度对应子 Agent。</p>
+        </div>
+
+        <div id="chatSurface" class="chat-surface hidden">
+          <div class="chat-header">
+            <div class="agent-pill">
+              <div class="agent-dot"></div>
+              <span id="conversationStage">收集输入</span>
+            </div>
+            <div class="chat-title-wrap">
+              <div id="conversationTitle" class="chat-title"></div>
+            </div>
+          </div>
+
+          <div id="messageStream" class="messages"></div>
+
+          <form id="composerForm" class="chat-input-wrap">
+            <input id="assetFileInput" class="visually-hidden" type="file" multiple />
+            <input id="assetKindInput" type="hidden" value="other" />
+
+            <div id="attachmentDropzone" class="chat-input-box">
+              <div id="fileChipsArea" class="file-chips-area hidden"></div>
+              <div id="composerDivider" class="composer-divider hidden"></div>
+              <div id="assetMentionMenu" class="asset-mention-menu hidden"></div>
+              <div id="selectedAssetPreview" class="selected-asset hidden">
+                <span id="assetFileName">未选择文件</span>
+                <span id="assetFileMeta"></span>
+                <button id="clearAssetBtn" class="asset-clear" type="button">清除</button>
+              </div>
+              <div class="input-row">
+                <div class="left-actions">
+                  <button id="uploadFileBtn" class="icon-btn" type="button" title="上传文件" aria-label="上传文件">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="textarea-wrap">
+                  <textarea id="messageInput" class="chat-textarea" rows="1" placeholder="向 PackVision 发送消息..."></textarea>
+                  <span id="assetUploadHint" class="attachment-hint">上传后输入 @ 选择文件</span>
+                </div>
+                <button id="sendBtn" class="send-btn" type="submit">
+                  <span class="send-label visually-hidden">发送</span>
+                  <span class="send-icon">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <div id="knowledgeSurface" class="knowledge-surface hidden">
+          <div class="knowledge-head">
+            <div>
+              <div class="knowledge-eyebrow">Agent Knowledge</div>
+              <h2>Agent 知识库</h2>
+              <p>把品类原则、包装方法、Badge 规则和出图边界沉淀为可检索知识，Agent 会在执行前自主判断是否调用。</p>
+            </div>
+            <div class="knowledge-actions">
+              <button id="knowledgePreviewBtn" class="btn-knowledge secondary" type="button">预览当前项目命中</button>
+              <button id="newKnowledgeBtn" class="btn-knowledge" type="button">新增知识</button>
+            </div>
+          </div>
+
+          <div id="knowledgeSummary" class="knowledge-summary" aria-label="知识库状态概览"></div>
+
+          <div class="knowledge-grid">
+            <section class="knowledge-list-panel">
+              <div class="knowledge-panel-title knowledge-panel-title-split">
+                <span>知识条目</span>
+                <span id="knowledgeListCount" class="knowledge-count">0</span>
+              </div>
+              <div class="knowledge-toolbar">
+                <input id="knowledgeSearch" type="search" placeholder="搜索标题、品类、标签、关键词..." />
+                <div class="knowledge-filter-row">
+                  <select id="knowledgeStatusFilter">
+                    <option value="all">全部状态</option>
+                    <option value="active">启用</option>
+                    <option value="draft">草稿</option>
+                    <option value="inactive">停用</option>
+                  </select>
+                  <select id="knowledgeDomainFilter">
+                    <option value="all">全部领域</option>
+                    <option value="packaging">包装</option>
+                    <option value="detail_page">详情页</option>
+                    <option value="visual">视觉通用</option>
+                    <option value="general">通用</option>
+                  </select>
+                </div>
+              </div>
+              <div id="knowledgeList" class="knowledge-list"></div>
+            </section>
+
+            <section class="knowledge-editor-panel">
+              <div class="knowledge-panel-title knowledge-panel-title-split">
+                <span>知识编辑</span>
+                <span id="knowledgeEditorHint" class="knowledge-editor-hint">选择条目</span>
+              </div>
+              <form id="knowledgeForm" class="knowledge-form">
+                <input id="knowledgeId" type="hidden" />
+                <div class="knowledge-editor-callout">
+                  <strong>调用边界</strong>
+                  <span>保存后的知识会进入 Agent 检索，但只能作为方法和原则，不会覆盖产品资料、人工确认结果和 VI 事实。</span>
+                </div>
+                <label>
+                  <span>标题</span>
+                  <input id="knowledgeTitle" type="text" placeholder="例如：娱乐/玩具类线下包装知识" />
+                </label>
+                <div class="knowledge-form-row">
+                  <label>
+                    <span>领域</span>
+                    <select id="knowledgeDomain">
+                      <option value="packaging">包装</option>
+                      <option value="detail_page">详情页</option>
+                      <option value="visual">视觉通用</option>
+                      <option value="general">通用</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>流程</span>
+                    <select id="knowledgeWorkflow">
+                      <option value="packaging">包装</option>
+                      <option value="detail_page">详情页</option>
+                      <option value="all">全部</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>状态</span>
+                    <select id="knowledgeStatus">
+                      <option value="active">启用</option>
+                      <option value="draft">草稿</option>
+                      <option value="inactive">停用</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="knowledge-form-row">
+                  <label>
+                    <span>品类</span>
+                    <input id="knowledgeCategory" type="text" placeholder="娱乐/玩具" />
+                  </label>
+                  <label>
+                    <span>优先级</span>
+                    <input id="knowledgePriority" type="number" min="0" max="100" step="1" />
+                  </label>
+                </div>
+                <label>
+                  <span>标签</span>
+                  <input id="knowledgeTags" type="text" placeholder="用逗号分隔：玩具, 拼装, Badge" />
+                </label>
+                <label>
+                  <span>关键词</span>
+                  <input id="knowledgeKeywords" type="text" placeholder="用逗号分隔：玩具, 儿童, 互动" />
+                </label>
+                <label>
+                  <span>结构内容 JSON</span>
+                  <em>建议包含 principles、strategy_execution_method、preferred_design_styles、badge_design、risk_notes。</em>
+                  <textarea id="knowledgeContent" rows="14" spellcheck="false"></textarea>
+                </label>
+                <div class="knowledge-form-actions">
+                  <button class="btn-knowledge" type="submit">保存知识</button>
+                  <button id="deleteKnowledgeBtn" class="btn-knowledge danger" type="button">删除</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="knowledge-preview-panel">
+              <div class="knowledge-panel-title">调用预览</div>
+              <div class="knowledge-rule-card">
+                <div class="knowledge-rule-title">Agent 调用顺序</div>
+                <ol>
+                  <li>读取项目定义、卖点、VI 和当前工作流</li>
+                  <li>检索启用状态的相关知识条目</li>
+                  <li>只注入适用原则，不覆盖事实</li>
+                  <li>冲突内容进入风险备注</li>
+                </ol>
+              </div>
+              <div id="knowledgePreview" class="knowledge-preview-empty">选择当前项目后，可预览 Agent 会命中的知识条目。</div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <div id="confirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+      <div class="app-modal">
+        <div class="app-modal-head">
+          <div>
+            <div id="confirmModalTitle" class="app-modal-title">确认操作</div>
+            <div id="confirmModalSubtitle" class="app-modal-subtitle"></div>
+          </div>
+          <button id="confirmModalClose" class="modal-close" type="button" aria-label="关闭">×</button>
+        </div>
+        <div id="confirmModalBody" class="app-modal-body"></div>
+        <div class="app-modal-actions">
+          <button id="confirmModalCancel" class="btn-modal secondary" type="button">取消</button>
+          <button id="confirmModalConfirm" class="btn-modal danger" type="button">确认删除</button>
+        </div>
+      </div>
+    </div>
+    <script src="./app.js?v=20260601-strategy-report"></script>
+  </body>
+</html>

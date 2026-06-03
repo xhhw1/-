@@ -1,0 +1,68 @@
+{
+  "name": "packaging_toy",
+  "description": "Packaging workflow sample for an interactive toy set with product and competitor visual context.",
+  "project": {
+    "workflow_type": "packaging",
+    "brief": {
+      "category": "interactive toy",
+      "target_user": "family buyers",
+      "user_expectations": ["safe", "fun", "easy to understand"],
+      "value_proposition": "clear play proof",
+      "core_product_definition": "interactive toy set"
+    },
+    "assets": [
+      {
+        "id": "golden-product-hero",
+        "kind": "product_image",
+        "filename": "hero.png",
+        "uri": "C:/tmp/golden/hero.png",
+        "mime_type": "image/png",
+        "metadata": {
+          "image_analysis": {
+            "image_role": "product_image",
+            "semantic_summary": "Bright product hero image.",
+            "understanding": {
+              "summary": "Bright hero product on clean background.",
+              "product_appearance": ["round blue toy body"],
+              "visible_accessories": ["card accessories"],
+              "play_clues": ["stacking play motion"]
+            }
+          }
+        }
+      },
+      {
+        "id": "golden-competitor-pack",
+        "kind": "competitor_packaging",
+        "filename": "competitor_pack.png",
+        "uri": "C:/tmp/golden/competitor_pack.png",
+        "mime_type": "image/png",
+        "metadata": {
+          "image_analysis": {
+            "image_role": "competitor_packaging",
+            "semantic_summary": "Competitor package reference.",
+            "understanding": {
+              "summary": "Competitor uses a large hero image and red callout.",
+              "competitor_visual_hooks": ["large hero image with red callout"],
+              "risks": ["avoid copying red callout layout"]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "reviews": [
+    {"action": "approve", "reviewer": "golden", "comment": "approve usps"},
+    {"action": "approve", "reviewer": "golden", "comment": "approve packaging strategy"},
+    {"action": "approve", "reviewer": "golden", "comment": "approve final design"}
+  ],
+  "checks": [
+    {"path": "status", "operator": "equals", "expected": "completed"},
+    {"path": "state.parsed_product.visual_features", "operator": "contains", "expected": "round blue toy body"},
+    {"path": "state.usp_candidates.core", "operator": "min_count", "expected": 1},
+    {"path": "state.packaging_strategy.product_name", "operator": "contains", "expected": "interactive toy set"},
+    {"path": "state.packaging_strategy.required_copy", "operator": "min_count", "expected": 1},
+    {"path": "state.generated_outputs.items", "operator": "min_count", "expected": 4},
+    {"path": "agent_runs", "operator": "min_count", "expected": 3},
+    {"path": "agent_runs.0.prompt_version", "operator": "startswith", "expected": "marketer@"}
+  ]
+}

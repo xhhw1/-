@@ -1,0 +1,36 @@
+:root {
+  color-scheme: light;
+  font-family:
+    "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --pv-bg: #f6f7f8;
+  --pv-surface: #ffffff;
+  --pv-surface-soft: #f2f5f6;
+  --pv-border: #dfe5e8;
+  --pv-border-strong: #cbd7dc;
+  --pv-text: #172126;
+  --pv-text-2: #52636c;
+  --pv-text-3: #7b8c94;
+  --pv-accent: #0787a0;
+  --pv-accent-strong: #056d84;
+  --pv-accent-soft: #e8f7fa;
+  --pv-success: #147d4f;
+  --pv-warning: #a76510;
+  --pv-radius: 14px;
+  --pv-radius-sm: 10px;
+  --pv-shadow: 0 18px 50px rgb(17 33 41 / 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--pv-bg);
+  color: var(--pv-text);
+}
+
+button,
+textarea {
+  font: inherit;
+}

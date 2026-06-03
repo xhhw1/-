@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-visual-agent"
+version = "0.1.0"
+description = "Multi-agent ecommerce visual design workflow with LangGraph, LangChain, and Harness."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.3.0",
+  "python-multipart>=0.0.9",
+  "langchain>=0.3.0",
+  "langchain-core>=0.3.0",
+  "langgraph>=0.2.0",
+  "langchain-openai>=0.2.0",
+  "openai>=1.60.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.5.0",
+  "mypy>=1.10.0"
+]
+vision = [
+  "google-genai>=1.0.0",
+  "llama-cloud>=0.1.0",
+  "python-pptx>=1.0.0",
+  "pymupdf>=1.24.0",
+  "pypdf>=4.0.0",
+  "pillow>=10.0.0",
+  "opencv-python-headless>=4.9.0",
+  "paddleocr>=3.0.0",
+  "paddlepaddle>=3.0.0"
+]
+infra = [
+  "redis>=5.0.0",
+  "sqlalchemy>=2.0.0",
+  "psycopg[binary]>=3.1.0",
+  "boto3>=1.34.0",
+  "qdrant-client>=1.12.0",
+  "langgraph-checkpoint-postgres>=3.0.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-visual-agent-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-visual-agent-api
+  template:
+    metadata:
+      labels:
+        app: ai-visual-agent-api
+    spec:
+      containers:
+        - name: api
+          image: <+artifact.image>
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MOCK_EXTERNAL_TOOLS
+              value: "false"
+            - name: PROJECT_STORE_BACKEND
+              value: postgres
+            - name: GRAPH_CHECKPOINT_BACKEND
+              value: postgres
+            - name: LANGGRAPH_STRICT_MSGPACK
+              value: "true"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ai-visual-agent-secrets
+                  key: database-url
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-visual-agent-secrets
+                  key: deepseek-api-key
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-visual-agent-secrets
+                  key: openai-api-key
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-visual-agent-secrets
+                  key: gemini-api-key
+            - name: LLAMA_CLOUD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-visual-agent-secrets
+                  key: llama-cloud-api-key
+            - name: QDRANT_URL
+              value: http://qdrant:6333
+            - name: QDRANT_COLLECTION
+              value: ai_visual_agent_memory
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-visual-agent-api
+spec:
+  selector:
+    app: ai-visual-agent-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000

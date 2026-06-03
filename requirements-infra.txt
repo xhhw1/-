@@ -1,0 +1,7 @@
+# Optional dependencies for production persistence and object storage.
+redis>=5.0.0
+sqlalchemy>=2.0.0
+psycopg[binary]>=3.1.0
+boto3>=1.34.0
+qdrant-client>=1.12.0
+langgraph-checkpoint-postgres>=3.0.0

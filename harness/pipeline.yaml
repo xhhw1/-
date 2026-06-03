@@ -1,0 +1,122 @@
+pipeline:
+  name: ai-visual-agent-ci-cd
+  identifier: ai_visual_agent_ci_cd
+  projectIdentifier: ecommerce_visual_ai
+  orgIdentifier: default
+  stages:
+    - stage:
+        name: build_and_test
+        identifier: build_and_test
+        type: CI
+        spec:
+          cloneCodebase: true
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: install_dependencies
+                  identifier: install_dependencies
+                  spec:
+                    shell: Sh
+                    command: |
+                      python -m pip install --upgrade pip
+                      pip install -r requirements.txt
+                      pip install -r requirements-infra.txt
+                      pip install pytest ruff
+              - step:
+                  type: Run
+                  name: lint
+                  identifier: lint
+                  spec:
+                    shell: Sh
+                    command: |
+                      ruff check src tests
+              - step:
+                  type: Run
+                  name: unit_tests
+                  identifier: unit_tests
+                  spec:
+                    shell: Sh
+                    command: |
+                      python -m compileall src tests
+                      pytest tests
+              - step:
+                  type: Run
+                  name: golden_regression
+                  identifier: golden_regression
+                  spec:
+                    shell: Sh
+                    command: |
+                      PYTHONPATH=src python scripts/run_golden_regression.py --json-output artifacts/golden-regression.json
+              - step:
+                  type: BuildAndPushDockerRegistry
+                  name: build_and_push_image
+                  identifier: build_and_push_image
+                  spec:
+                    connectorRef: docker_registry
+                    repo: ecommerce/ai-visual-agent
+                    tags:
+                      - <+pipeline.sequenceId>
+                      - <+codebase.shortCommitSha>
+    - stage:
+        name: deploy_staging
+        identifier: deploy_staging
+        type: Deployment
+        spec:
+          serviceConfig:
+            serviceRef: ai_visual_agent_api
+          infrastructure:
+            environmentRef: staging
+            infrastructureDefinition:
+              type: KubernetesDirect
+              spec:
+                connectorRef: k8s_staging
+                namespace: ai-visual-agent
+          execution:
+            steps:
+              - step:
+                  type: K8sRollingDeploy
+                  name: rolling_deploy
+                  identifier: rolling_deploy
+                  spec:
+                    skipDryRun: false
+              - step:
+                  type: Run
+                  name: staging_smoke_golden
+                  identifier: staging_smoke_golden
+                  spec:
+                    shell: Sh
+                    command: |
+                      STAGING_BASE_URL="${STAGING_BASE_URL:-http://ai-visual-agent-api.ai-visual-agent.svc.cluster.local}"
+                      curl -fsS "$STAGING_BASE_URL/health"
+                      curl -fsS "$STAGING_BASE_URL/api/golden/fixtures"
+                      curl -fsS -X POST "$STAGING_BASE_URL/api/golden/fixtures/packaging_toy/run"
+                      curl -fsS -X POST "$STAGING_BASE_URL/api/golden/fixtures/detail_toy/run"
+    - stage:
+        name: deploy_production
+        identifier: deploy_production
+        type: Deployment
+        spec:
+          serviceConfig:
+            serviceRef: ai_visual_agent_api
+          infrastructure:
+            environmentRef: production
+            infrastructureDefinition:
+              type: KubernetesDirect
+              spec:
+                connectorRef: k8s_production
+                namespace: ai-visual-agent
+          execution:
+            steps:
+              - step:
+                  type: HarnessApproval
+                  name: approve_release
+                  identifier: approve_release
+                  spec:
+                    approvalMessage: "确认将 AI 电商视觉设计工作流发布到生产环境。"
+              - step:
+                  type: K8sCanaryDeploy
+                  name: canary_deploy
+                  identifier: canary_deploy
+                  spec:
+                    skipDryRun: false

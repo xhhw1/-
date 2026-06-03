@@ -1,0 +1,67 @@
+{
+  "name": "detail_toy",
+  "description": "Detail-page workflow sample for a five-screen ecommerce proposal.",
+  "project": {
+    "workflow_type": "detail_page",
+    "brief": {
+      "category": "interactive toy",
+      "target_user": "family buyers",
+      "user_expectations": ["safe", "fun", "easy to understand"],
+      "value_proposition": "clear play proof",
+      "core_product_definition": "interactive toy set"
+    },
+    "assets": [
+      {
+        "id": "golden-detail-product-hero",
+        "kind": "product_image",
+        "filename": "detail_hero.png",
+        "uri": "C:/tmp/golden/detail_hero.png",
+        "mime_type": "image/png",
+        "metadata": {
+          "image_analysis": {
+            "image_role": "product_image",
+            "semantic_summary": "Product hero for detail page.",
+            "understanding": {
+              "summary": "Product shown in a bright play scenario.",
+              "product_appearance": ["round blue toy body"],
+              "visible_accessories": ["card accessories"],
+              "play_clues": ["stacking play motion"]
+            }
+          }
+        }
+      },
+      {
+        "id": "golden-competitor-detail",
+        "kind": "competitor_detail_page",
+        "filename": "competitor_detail.png",
+        "uri": "C:/tmp/golden/competitor_detail.png",
+        "mime_type": "image/png",
+        "metadata": {
+          "image_analysis": {
+            "image_role": "competitor_detail_page",
+            "semantic_summary": "Competitor detail page reference.",
+            "understanding": {
+              "summary": "Competitor leads with a product hero and simple feature proof.",
+              "competitor_visual_hooks": ["product hero plus simple feature proof"],
+              "detail_page_sections": ["traffic hook", "feature proof", "accessory proof"]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "reviews": [
+    {"action": "approve", "reviewer": "golden", "comment": "approve usps"},
+    {"action": "approve", "reviewer": "golden", "comment": "approve detail strategy"},
+    {"action": "approve", "reviewer": "golden", "comment": "approve final design"}
+  ],
+  "checks": [
+    {"path": "status", "operator": "equals", "expected": "completed"},
+    {"path": "state.usp_candidates.core", "operator": "min_count", "expected": 1},
+    {"path": "state.detail_page_strategy.screens", "operator": "min_count", "expected": 5},
+    {"path": "state.generated_outputs.items", "operator": "min_count", "expected": 5},
+    {"path": "agent_runs", "operator": "min_count", "expected": 3},
+    {"path": "agent_runs.1.prompt_name", "operator": "equals", "expected": "detail_page_director"},
+    {"path": "agent_runs.1.output_schema", "operator": "equals", "expected": "DetailPageStrategy"}
+  ]
+}
