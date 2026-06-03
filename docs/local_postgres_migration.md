@@ -33,6 +33,7 @@ $env:PYTHONPATH='src'
 
 ```env
 PROJECT_STORE_BACKEND=postgres
+GRAPH_CHECKPOINT_BACKEND=postgres
 DATABASE_URL=postgresql+psycopg://vision_agent:vision_agent@localhost:5432/vision_agent
 LOCAL_DATABASE_URL=sqlite:///data/vision_agent.db
 ```
@@ -47,7 +48,8 @@ GET http://127.0.0.1:8000/health
 
 ```json
 {
-  "project_store_backend": "postgres"
+  "project_store_backend": "postgres",
+  "graph_checkpoint_backend": "postgres"
 }
 ```
 
@@ -57,4 +59,10 @@ GET http://127.0.0.1:8000/health
 
 ## 说明
 
-`GRAPH_CHECKPOINT_BACKEND` 当前仍建议保持 `memory`，除非运行环境已经安装 `langgraph-checkpoint-postgres`。业务数据已经切到 PostgreSQL，不受该项影响。
+`GRAPH_CHECKPOINT_BACKEND=postgres` 需要安装 `langgraph-checkpoint-postgres`。本地可以执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-infra.txt
+```
+
+业务数据和 LangGraph 中断恢复状态都会写入同一个 PostgreSQL 实例，但使用不同表。
