@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { ArrowClockwise, Paperclip, Trash } from "@phosphor-icons/react";
+import { Paperclip, Robot, UserCircle } from "@phosphor-icons/react";
 import {
   batchDeleteConversations,
   cancelBackgroundTask,
@@ -530,7 +530,7 @@ export function App() {
         </div>
         {currentUser.data ? (
           <div className="sb-account-card">
-            <div className="sb-account-avatar">{currentUser.data.email.slice(0, 1).toUpperCase()}</div>
+            <div className="sb-account-avatar"><UserCircle size={18} weight="duotone" /></div>
             <div className="sb-account-main">
               <strong>{currentUser.data.email}</strong>
               <span>{currentUser.data.role === "admin" ? "管理员" : "成员"} · {currentUser.data.status === "active" ? "启用中" : "已禁用"}</span>
@@ -863,7 +863,6 @@ function TopBar({
   onCancelTask: (jobId: string) => void;
   onRetryTask: (jobId: string) => void;
 }) {
-  const progress = detail ? confirmedProgress(detail) : null;
   return (
     <div className="mn-top">
       <div className="mn-top-l">
@@ -873,17 +872,6 @@ function TopBar({
         </div>
       </div>
       <div className="mn-top-r">
-        {progress ? <div className="mn-top-badge">{progress.confirmed}/{progress.total} 已确认</div> : null}
-        <button className="mn-top-icon-btn" type="button" title="刷新" onClick={onRefresh}>
-          <ArrowClockwise size={15} weight="bold" />
-        </button>
-        <div className="nav-status">
-          <span className="status-dot"></span>
-          <span>{healthLabel}</span>
-        </div>
-        <button className="mn-top-icon-btn danger" type="button" title="删除当前任务" onClick={onDelete}>
-          <Trash size={15} weight="bold" />
-        </button>
         <TaskStatusStrip
           tasks={tasks}
           busy={taskActionBusy}
@@ -1036,7 +1024,7 @@ function MessageNode({ message }: { message: ConversationMessage }) {
     return (
       <div className="msg-user">
         <div className="bubble">{message.content}</div>
-        <div className="msg-avatar user">你</div>
+        <div className="msg-avatar user"><UserCircle size={18} weight="duotone" /></div>
       </div>
     );
   }
@@ -1057,7 +1045,7 @@ function MessageNode({ message }: { message: ConversationMessage }) {
   }
   return (
     <div className="msg-agent">
-      <div className="msg-avatar agent">A</div>
+      <div className="msg-avatar agent"><Robot size={17} weight="duotone" /></div>
       <div>
         <div className="agent-label">AI Agent</div>
         <div className="bubble">{message.content || "已完成一项处理。"}</div>
