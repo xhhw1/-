@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { Paperclip } from "@phosphor-icons/react";
+import { ArrowClockwise, Paperclip, Trash } from "@phosphor-icons/react";
 import {
   batchDeleteConversations,
   cancelBackgroundTask,
@@ -864,8 +864,6 @@ function TopBar({
   onRetryTask: (jobId: string) => void;
 }) {
   const progress = detail ? confirmedProgress(detail) : null;
-  const runningTasks = tasks.filter((task) => task.status === "queued" || task.status === "running").length;
-  const failedTasks = tasks.filter((task) => task.status === "failed").length;
   return (
     <div className="mn-top">
       <div className="mn-top-l">
@@ -875,29 +873,24 @@ function TopBar({
         </div>
       </div>
       <div className="mn-top-r">
-        {runningTasks || failedTasks ? (
-          <div className={`mn-top-badge${failedTasks ? " warn" : ""}`}>
-            {runningTasks ? `任务运行中 ${runningTasks}` : `任务失败 ${failedTasks}`}
-          </div>
-        ) : null}
         {progress ? <div className="mn-top-badge">{progress.confirmed}/{progress.total} 已确认</div> : null}
         <button className="mn-top-icon-btn" type="button" title="刷新" onClick={onRefresh}>
-          ↻
+          <ArrowClockwise size={15} weight="bold" />
         </button>
         <div className="nav-status">
           <span className="status-dot"></span>
           <span>{healthLabel}</span>
         </div>
         <button className="mn-top-icon-btn danger" type="button" title="删除当前任务" onClick={onDelete}>
-          删
+          <Trash size={15} weight="bold" />
         </button>
+        <TaskStatusStrip
+          tasks={tasks}
+          busy={taskActionBusy}
+          onCancelTask={onCancelTask}
+          onRetryTask={onRetryTask}
+        />
       </div>
-      <TaskStatusStrip
-        tasks={tasks}
-        busy={taskActionBusy}
-        onCancelTask={onCancelTask}
-        onRetryTask={onRetryTask}
-      />
     </div>
   );
 }
@@ -913,32 +906,39 @@ function TaskStatusStrip({
   onCancelTask: (jobId: string) => void;
   onRetryTask: (jobId: string) => void;
 }) {
-  const visibleTasks = tasks.filter((task) => task.status !== "succeeded").slice(0, 3);
+  const pendingTasks = [...tasks]
+    .filter((task) => task.status !== "succeeded")
+    .sort((a, b) => taskPriority(a.status) - taskPriority(b.status));
+  const visibleTasks = pendingTasks.slice(0, 1);
   if (!visibleTasks.length) return null;
   return (
     <div className="task-strip" aria-label="后台任务状态">
       {visibleTasks.map((task) => {
         const terminal = task.status === "failed" || task.status === "cancelled";
         const active = task.status === "queued" || task.status === "running";
+        const errorText = friendlyTaskError(task.error);
         return (
-          <div className={`task-pill ${task.status}`} key={task.id}>
+          <div className={`task-pill ${taskToneClass(task.status)}`} key={task.id}>
             <span className="task-dot"></span>
-            <strong>{taskKindLabel(task.kind)}</strong>
-            <span>{taskStatusLabel(task.status)}</span>
-            {task.error ? <em title={task.error}>{task.error}</em> : null}
+            <span className="task-main">
+              <strong>{taskKindLabel(task.kind)}</strong>
+              <span>{taskStatusLabel(task.status)}</span>
+            </span>
+            {errorText ? <em className="task-error" title={errorText}>{errorText}</em> : null}
             {terminal ? (
-              <button type="button" disabled={busy} onClick={() => onRetryTask(task.id)}>
+              <button className="task-action" type="button" disabled={busy} onClick={() => onRetryTask(task.id)}>
                 重试
               </button>
             ) : null}
             {active ? (
-              <button type="button" disabled={busy} onClick={() => onCancelTask(task.id)}>
+              <button className="task-action muted" type="button" disabled={busy} onClick={() => onCancelTask(task.id)}>
                 取消
               </button>
             ) : null}
           </div>
         );
       })}
+      {pendingTasks.length > visibleTasks.length ? <span className="task-more">+{pendingTasks.length - visibleTasks.length}</span> : null}
     </div>
   );
 }
@@ -2686,7 +2686,7 @@ function taskKindLabel(kind: string) {
   const labels: Record<string, string> = {
     agent_run: "Agent 任务",
     asset_processing: "素材解析",
-    image_generation: "生图任务"
+    image_generation: "图像生成"
   };
   return labels[kind] ?? kind;
 }
@@ -2700,6 +2700,23 @@ function taskStatusLabel(status: string) {
     succeeded: "完成"
   };
   return labels[status] ?? status;
+}
+
+function taskPriority(status: string) {
+  return ({ failed: 1, cancelled: 2, running: 3, queued: 4 }[status] ?? 9);
+}
+
+function taskToneClass(status: string) {
+  return ({ failed: "failed", cancelled: "cancelled", running: "running", queued: "queued" }[status] ?? "idle");
+}
+
+function friendlyTaskError(error?: string) {
+  const value = String(error || "").trim();
+  if (!value) return "";
+  if (value.includes("cancelled_by_user")) return "用户已取消";
+  if (value.includes("ConnectError")) return "连接失败";
+  if (value.includes("RateLimitError") || value.includes("429")) return "额度或频率限制";
+  return shortText(value.replace(/\s+/g, " "), 28);
 }
 
 function messageRunStatus(message: ConversationMessage) {
