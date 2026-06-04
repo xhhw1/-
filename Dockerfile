@@ -15,8 +15,11 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY requirements.txt requirements-infra.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-infra.txt
+COPY requirements.txt requirements-infra.txt requirements-vision.txt ./
+RUN pip install --no-cache-dir \
+    -r requirements.txt \
+    -r requirements-infra.txt \
+    -r requirements-vision.txt
 
 COPY src ./src
 COPY fixtures ./fixtures
