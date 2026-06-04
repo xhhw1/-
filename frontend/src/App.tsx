@@ -6,6 +6,7 @@ import {
   cancelBackgroundTask,
   createConversation,
   createKnowledgeEntry,
+  createUser,
   deleteConversation,
   deleteKnowledgeEntry,
   getCurrentUser,
@@ -14,11 +15,14 @@ import {
   listConversations,
   listBackgroundTasks,
   listKnowledgeEntries,
+  listUsers,
   login,
+  logout,
   previewProjectKnowledge,
   retryBackgroundTask,
   sendConversationMessage,
   submitReviewGateAction,
+  updateUser,
   updateKnowledgeEntry,
   uploadConversationAsset
 } from "./api/queries";
@@ -26,6 +30,9 @@ import { getStoredAuthToken, setStoredAuthToken } from "./api/client";
 import type {
   AssetKind,
   AssetRef,
+  AuthUser,
+  AuthUserCreateRequest,
+  AuthUserUpdateRequest,
   BackgroundTask,
   ConversationDetail,
   ConversationMessage,
@@ -38,7 +45,7 @@ import type {
   ReviewGate
 } from "./api/types";
 
-type ViewMode = "chat" | "knowledge";
+type ViewMode = "chat" | "knowledge" | "users";
 type ReviewSubmit = {
   gate: ReviewGate;
   action: ReviewAction;
@@ -128,12 +135,19 @@ export function App() {
     queryFn: listKnowledgeEntries,
     enabled: apiReady && activeView === "knowledge"
   });
+  const canManageUsers = currentUser.data?.role === "admin";
+  const users = useQuery({
+    queryKey: ["auth", "users"],
+    queryFn: listUsers,
+    enabled: apiReady && activeView === "users" && canManageUsers
+  });
 
   const conversationsData = conversations.data ?? [];
   const selectedFromList = selectedId ? conversationsData.find((item) => item.session.id === selectedId) ?? null : null;
   const currentDetail = detail.data ?? selectedFromList;
   const pendingGate = currentDetail?.pending_review_gate ?? null;
   const knowledgeEntries = knowledge.data ?? [];
+  const userEntries = users.data ?? [];
   const currentProjectId = currentDetail ? projectId(currentDetail) : "";
   const tasks = useQuery({
     queryKey: ["tasks", currentProjectId],
@@ -217,6 +231,11 @@ export function App() {
       showToast(`已登录：${data.user.email}`);
     },
     onError: showError
+  });
+
+  const logoutMutation = useMutation({
+    mutationFn: logout,
+    onSettled: () => handleLocalLogout()
   });
 
   const createMutation = useMutation({
@@ -365,6 +384,26 @@ export function App() {
     onError: showError
   });
 
+  const createUserMutation = useMutation({
+    mutationFn: createUser,
+    onSuccess: (user) => {
+      queryClient.invalidateQueries({ queryKey: ["auth", "users"] });
+      showToast(`用户已创建：${user.email}`);
+    },
+    onError: showError
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: { role?: "admin" | "member"; status?: "active" | "disabled"; password?: string } }) =>
+      updateUser(id, payload),
+    onSuccess: (user) => {
+      queryClient.invalidateQueries({ queryKey: ["auth", "users"] });
+      if (currentUser.data?.id === user.id) queryClient.invalidateQueries({ queryKey: ["auth", "me", authToken] });
+      showToast(`用户已更新：${user.email}`);
+    },
+    onError: showError
+  });
+
   function showToast(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(""), 2200);
@@ -379,6 +418,22 @@ export function App() {
       revokePendingUploads(current);
       return [];
     });
+  }
+
+  function handleLocalLogout() {
+    setStoredAuthToken("");
+    setAuthToken("");
+    setSelectedId(null);
+    setActiveView("chat");
+    setDraft("");
+    setComposerAssets([]);
+    clearPendingUploads();
+    queryClient.removeQueries({ queryKey: ["auth"] });
+    queryClient.removeQueries({ queryKey: ["conversations"] });
+    queryClient.removeQueries({ queryKey: ["conversation"] });
+    queryClient.removeQueries({ queryKey: ["knowledge"] });
+    queryClient.removeQueries({ queryKey: ["tasks"] });
+    showToast("已退出登录");
   }
 
   function removePendingUpload(uploadId: string) {
@@ -473,6 +528,18 @@ export function App() {
           <div className="logo-icon">PV</div>
           <span className="sb-brand-name">PackVision</span>
         </div>
+        {currentUser.data ? (
+          <div className="sb-account-card">
+            <div className="sb-account-avatar">{currentUser.data.email.slice(0, 1).toUpperCase()}</div>
+            <div className="sb-account-main">
+              <strong>{currentUser.data.email}</strong>
+              <span>{currentUser.data.role === "admin" ? "管理员" : "成员"} · {currentUser.data.status === "active" ? "启用中" : "已禁用"}</span>
+            </div>
+            <button className="sb-account-logout" type="button" disabled={logoutMutation.isPending} onClick={() => logoutMutation.mutate()}>
+              退出
+            </button>
+          </div>
+        ) : null}
         <div className="sb-nav">
           <button className="sb-nav-item" type="button" onClick={() => createMutation.mutate({ initial_message: "", title: "新项目对话" })}>
             <span className="sb-nav-icon">＋</span>
@@ -487,6 +554,13 @@ export function App() {
             <span className="sb-nav-icon">◇</span>
             <span>知识库</span>
           </button>
+          {canManageUsers ? (
+            <button className={`sb-nav-item${activeView === "users" ? " active" : ""}`} type="button" onClick={() => setActiveView(activeView === "users" ? "chat" : "users")}>
+              <span className="sb-nav-icon">◇</span>
+              <span>用户管理</span>
+              <span className="sb-nav-badge">{userEntries.length}</span>
+            </button>
+          ) : null}
         </div>
         <div className="sidebar-search">
           <span className="search-icon">⌕</span>
@@ -565,7 +639,16 @@ export function App() {
           onRetryTask={(jobId) => retryTaskMutation.mutate(jobId)}
         />
 
-        {activeView === "knowledge" ? (
+        {activeView === "users" && canManageUsers ? (
+          <UserManagementSurface
+            users={userEntries}
+            currentUser={currentUser.data}
+            loading={users.isLoading || createUserMutation.isPending || updateUserMutation.isPending}
+            onCreate={(payload) => createUserMutation.mutate(payload)}
+            onUpdate={(id, payload) => updateUserMutation.mutate({ id, payload })}
+            onRefresh={() => queryClient.invalidateQueries({ queryKey: ["auth", "users"] })}
+          />
+        ) : activeView === "knowledge" ? (
           <KnowledgeSurface
             entries={knowledgeEntries}
             filters={knowledgeFilters}
@@ -1600,6 +1683,140 @@ function PendingUploadChip({ upload, onRemove }: { upload: PendingUpload; onRemo
         <span className="chip-status cs-pending">待发送</span>
       </div>
       <button className="chip-remove" type="button" onClick={onRemove}>×</button>
+    </div>
+  );
+}
+
+function UserManagementSurface({
+  users,
+  currentUser,
+  loading,
+  onCreate,
+  onUpdate,
+  onRefresh
+}: {
+  users: AuthUser[];
+  currentUser?: AuthUser;
+  loading: boolean;
+  onCreate: (payload: AuthUserCreateRequest) => void;
+  onUpdate: (id: string, payload: AuthUserUpdateRequest) => void;
+  onRefresh: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState<"admin" | "member">("member");
+  const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
+  const sortedUsers = useMemo(
+    () => [...users].sort((a, b) => Number(b.role === "admin") - Number(a.role === "admin") || a.email.localeCompare(b.email)),
+    [users]
+  );
+  const canSubmit = email.trim().includes("@") && password.length >= 8;
+
+  return (
+    <div className="user-surface">
+      <div className="user-head">
+        <div>
+          <div className="user-eyebrow">Access Control</div>
+          <h2>用户管理</h2>
+          <p>管理员在这里给新用户创建登录账号。成员登录后只能看到自己名下的项目、素材和任务。</p>
+        </div>
+        <button className="btn-user secondary" type="button" onClick={onRefresh} disabled={loading}>刷新</button>
+      </div>
+
+      <div className="user-grid">
+        <section className="user-create-panel">
+          <div className="user-panel-title">新增用户</div>
+          <form
+            className="user-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!canSubmit) return;
+              onCreate({ email: email.trim(), password, role });
+              setEmail("");
+              setPassword("");
+              setRole("member");
+            }}
+          >
+            <label>
+              <span>邮箱</span>
+              <input value={email} type="email" autoComplete="off" placeholder="name@example.com" onChange={(event) => setEmail(event.target.value)} />
+            </label>
+            <label>
+              <span>初始密码</span>
+              <input value={password} type="password" autoComplete="new-password" placeholder="至少 8 位" onChange={(event) => setPassword(event.target.value)} />
+            </label>
+            <label>
+              <span>角色</span>
+              <select value={role} onChange={(event) => setRole(event.target.value as "admin" | "member")}>
+                <option value="member">成员</option>
+                <option value="admin">管理员</option>
+              </select>
+            </label>
+            <button className="btn-user" type="submit" disabled={loading || !canSubmit}>创建账号</button>
+            <p className="user-form-note">创建后把邮箱和初始密码给对方，对方直接打开 /app-next/ 登录。</p>
+          </form>
+        </section>
+
+        <section className="user-list-panel">
+          <div className="user-panel-title user-panel-title-split">
+            <span>账号列表</span>
+            <span>{sortedUsers.length} 个用户</span>
+          </div>
+          <div className="user-list">
+            {sortedUsers.map((user) => {
+              const isSelf = currentUser?.id === user.id;
+              const passwordDraft = passwordDrafts[user.id] ?? "";
+              return (
+                <div className={`user-row${user.status === "disabled" ? " disabled" : ""}`} key={user.id}>
+                  <div className="user-avatar">{user.email.slice(0, 1).toUpperCase()}</div>
+                  <div className="user-info">
+                    <strong>{user.email}</strong>
+                    <span>{user.id}</span>
+                  </div>
+                  <select
+                    value={user.role}
+                    disabled={loading || isSelf}
+                    onChange={(event) => onUpdate(user.id, { role: event.target.value as "admin" | "member" })}
+                  >
+                    <option value="member">成员</option>
+                    <option value="admin">管理员</option>
+                  </select>
+                  <button
+                    className={`user-status ${user.status}`}
+                    type="button"
+                    disabled={loading || isSelf}
+                    onClick={() => onUpdate(user.id, { status: user.status === "active" ? "disabled" : "active" })}
+                  >
+                    {user.status === "active" ? "启用" : "禁用"}
+                  </button>
+                  <div className="user-password-reset">
+                    <input
+                      value={passwordDraft}
+                      type="password"
+                      placeholder="新密码"
+                      disabled={loading}
+                      onChange={(event) => setPasswordDrafts((current) => ({ ...current, [user.id]: event.target.value }))}
+                    />
+                    <button
+                      className="btn-user secondary"
+                      type="button"
+                      disabled={loading || passwordDraft.length < 8}
+                      onClick={() => {
+                        onUpdate(user.id, { password: passwordDraft });
+                        setPasswordDrafts((current) => ({ ...current, [user.id]: "" }));
+                      }}
+                    >
+                      重置
+                    </button>
+                  </div>
+                  {isSelf ? <span className="user-self-badge">当前账号</span> : null}
+                </div>
+              );
+            })}
+            {!sortedUsers.length ? <div className="user-empty">暂无用户</div> : null}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

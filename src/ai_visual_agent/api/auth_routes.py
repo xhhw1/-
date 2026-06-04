@@ -31,6 +31,12 @@ def login(request: AuthLoginRequest, response: Response) -> AuthTokenResponse:
     return AuthTokenResponse(access_token=token, user=user)
 
 
+@auth_router.post("/logout")
+def logout(response: Response) -> dict[str, bool]:
+    response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
 @auth_router.get("/me", response_model=AuthUser)
 def me(
     response: Response,
@@ -65,6 +71,8 @@ def update_user(
     request: AuthUserUpdateRequest,
     _admin: AuthUser = Depends(require_admin_dependency),
 ) -> AuthUser:
+    if user_id == _admin.id and (request.status == "disabled" or request.role == "member"):
+        raise HTTPException(status_code=400, detail="Cannot disable or demote the current admin user")
     try:
         return public_user(user_store.update(user_id, request))
     except KeyError as exc:

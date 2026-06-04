@@ -39,12 +39,25 @@ export interface AuthUser {
   id: string;
   email: string;
   role: "admin" | "member";
+  status: "active" | "disabled";
 }
 
 export interface AuthTokenResponse {
   access_token: string;
   token_type: "bearer";
   user: AuthUser;
+}
+
+export interface AuthUserCreateRequest {
+  email: string;
+  password: string;
+  role: "admin" | "member";
+}
+
+export interface AuthUserUpdateRequest {
+  password?: string;
+  role?: "admin" | "member";
+  status?: "active" | "disabled";
 }
 
 export interface BackgroundTask {

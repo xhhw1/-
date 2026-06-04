@@ -4,6 +4,8 @@ import type {
   AuthLoginRequest,
   AuthTokenResponse,
   AuthUser,
+  AuthUserCreateRequest,
+  AuthUserUpdateRequest,
   BackgroundTask,
   ConversationBatchDeleteRequest,
   ConversationBatchDeleteResult,
@@ -35,6 +37,36 @@ export function login(payload: AuthLoginRequest): Promise<AuthTokenResponse> {
 
 export function getCurrentUser(): Promise<AuthUser> {
   return apiRequest<AuthUser>("/api/auth/me", {}, { retries: 0, timeoutMs: 10000 });
+}
+
+export function logout(): Promise<{ ok: boolean }> {
+  return apiRequest<{ ok: boolean }>("/api/auth/logout", { method: "POST" }, { retries: 0, timeoutMs: 10000 });
+}
+
+export function listUsers(): Promise<AuthUser[]> {
+  return apiRequest<AuthUser[]>("/api/auth/users", {}, { retries: 1, timeoutMs: 10000 });
+}
+
+export function createUser(payload: AuthUserCreateRequest): Promise<AuthUser> {
+  return apiRequest<AuthUser>(
+    "/api/auth/users",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    { retries: 0, timeoutMs: 30000 }
+  );
+}
+
+export function updateUser(id: string, payload: AuthUserUpdateRequest): Promise<AuthUser> {
+  return apiRequest<AuthUser>(
+    `/api/auth/users/${id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    },
+    { retries: 0, timeoutMs: 30000 }
+  );
 }
 
 export function listBackgroundTasks(projectId?: string): Promise<BackgroundTask[]> {
