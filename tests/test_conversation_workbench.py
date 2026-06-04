@@ -458,6 +458,46 @@ def test_image_generation_references_exclude_competitor_and_vi_candidates() -> N
     assert _image_generation_reference_asset_ids(project, {"logo_asset_id": "logo"}) == ["product", "logo"]
 
 
+def test_image_generation_references_include_prompt_mentioned_images() -> None:
+    project = ProjectRecord(
+        workflow_type="packaging",
+        brief=ProjectBrief(raw_text="产品图@product.png 品牌logo@logo.png"),
+        assets=[
+            AssetRef(id="product", kind="other", filename="product.png", uri="product.png", mime_type="image/png"),
+            AssetRef(id="competitor", kind="other", filename="competitor.png", uri="competitor.png", mime_type="image/png"),
+            AssetRef(id="logo", kind="other", filename="logo.png", uri="logo.png", mime_type="image/png"),
+            AssetRef(
+                id="generated",
+                kind="other",
+                filename="packaging_front_base_r0.png",
+                uri="generated.png",
+                mime_type="image/png",
+                metadata={"asset_role": "generated_visual_base"},
+            ),
+        ],
+    )
+    prompt_context = "主图参考：产品图@product.png，竞品图@competitor.png，品牌logo@logo.png。不要使用 packaging_front_base_r0.png。"
+
+    assert _image_generation_reference_asset_ids(
+        project,
+        {"logo_asset_id": "logo"},
+        prompt_context=prompt_context,
+    ) == ["product", "competitor", "logo"]
+
+
+def test_product_reference_ids_accept_prompt_context_labels() -> None:
+    project = ProjectRecord(
+        workflow_type="packaging",
+        brief=ProjectBrief(raw_text="品牌logo@topbright.png"),
+        assets=[
+            AssetRef(id="logo", kind="other", filename="topbright.png", uri="logo.png", mime_type="image/png"),
+            AssetRef(id="product", kind="other", filename="赛博灵宠.png", uri="product.png", mime_type="image/png"),
+        ],
+    )
+
+    assert _product_reference_asset_ids(project, prompt_context="产品图@赛博灵宠.png") == ["product"]
+
+
 def test_image_generation_references_continue_after_competitor_candidate() -> None:
     project = ProjectRecord(
         workflow_type="packaging",

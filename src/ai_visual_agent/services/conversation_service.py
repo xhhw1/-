@@ -36,6 +36,7 @@ from ai_visual_agent.services.asset_intelligence import (
     build_project_evidence_context,
 )
 from ai_visual_agent.services.conversation_agents import (
+    _image_reference_prompt_context,
     _image_generation_reference_asset_ids,
     _product_reference_asset_ids,
     run_design_agent,
@@ -1565,8 +1566,17 @@ def _run_target_agent(*, session_id: str, project: ProjectRecord, target_agent: 
                 source_message=source_message,
             )
             return
-        planned_reference_ids = _image_generation_reference_asset_ids(project, vi_profile)
-        product_reference_ids = set(_product_reference_asset_ids(project))
+        reference_prompt_context = _image_reference_prompt_context(
+            confirmed_strategy=confirmed_strategy,
+            confirmed_image_prompt=image_prompt if workflow_type == "packaging" else None,
+            revision_request=source_message,
+        )
+        planned_reference_ids = _image_generation_reference_asset_ids(
+            project,
+            vi_profile,
+            prompt_context=reference_prompt_context,
+        )
+        product_reference_ids = set(_product_reference_asset_ids(project, prompt_context=reference_prompt_context))
         reference_assets = [asset for asset in project.assets if asset.id in product_reference_ids]
         if not reference_assets:
             gate = conversation_store.create_review_gate(
@@ -1688,6 +1698,7 @@ def _run_target_agent(*, session_id: str, project: ProjectRecord, target_agent: 
                 confirmed_vi_profile=vi_profile,
                 confirmed_image_prompt=image_prompt if workflow_type == "packaging" else None,
                 revision_request=source_message,
+                reference_prompt_context=reference_prompt_context,
                 return_partial_on_error=True,
                 on_item_generated=on_item_generated,
                 on_generation_error=on_generation_error,

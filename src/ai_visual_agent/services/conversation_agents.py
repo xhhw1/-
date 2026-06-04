@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ai_visual_agent.domain import (
@@ -444,6 +445,7 @@ def run_design_agent(
     confirmed_vi_profile: dict[str, Any],
     confirmed_image_prompt: dict[str, Any] | None = None,
     revision_request: str = "",
+    reference_prompt_context: str = "",
     return_partial_on_error: bool = False,
     on_item_generated: Any | None = None,
     on_generation_error: Any | None = None,
@@ -462,13 +464,23 @@ def run_design_agent(
             risk_notes = []
         risk_notes.append("本轮出图已合并用户自然语言修正意见。")
         image_prompt["risk_notes"] = risk_notes
+    prompt_context = _image_reference_prompt_context(
+        confirmed_strategy=confirmed_strategy,
+        confirmed_image_prompt=image_prompt,
+        revision_request=revision_request,
+        extra_context=reference_prompt_context,
+    )
     return generate_design_outputs(
         project_id=project.id,
         workflow_type="detail_page" if workflow_type == "detail_page" else "packaging",
         strategy=confirmed_strategy,
         vi_profile=confirmed_vi_profile,
         revision_round=0,
-        reference_asset_ids=_image_generation_reference_asset_ids(project, confirmed_vi_profile),
+        reference_asset_ids=_image_generation_reference_asset_ids(
+            project,
+            confirmed_vi_profile,
+            prompt_context=prompt_context,
+        ),
         main_image_prompt_draft=image_prompt,
         allow_mock_fallback=False,
         return_partial_on_error=return_partial_on_error,
@@ -477,7 +489,18 @@ def run_design_agent(
     )
 
 
-def _product_reference_asset_ids(project: ProjectRecord) -> list[str]:
+def _product_reference_asset_ids(project: ProjectRecord, *, prompt_context: str = "") -> list[str]:
+    prompt_product_ids: list[str] = []
+    for asset_id in _prompt_mentioned_image_asset_ids(project, prompt_context):
+        try:
+            asset = _asset_by_id(project, asset_id)
+        except StopIteration:
+            continue
+        context_role = _asset_role_from_text(prompt_context, asset)
+        if _is_product_reference_asset(asset, text_role=context_role or _project_text_role(project, asset)):
+            prompt_product_ids.append(asset_id)
+    if prompt_product_ids:
+        return prompt_product_ids[:3]
     reference_ids = _design_reference_asset_ids(project)
     explicit_ids = [
         asset_id
@@ -521,16 +544,28 @@ def _design_reference_asset_ids(project: ProjectRecord) -> list[str]:
     return ordered_ids[:8]
 
 
-def _image_generation_reference_asset_ids(project: ProjectRecord, vi_profile: dict[str, Any] | None = None) -> list[str]:
+def _image_generation_reference_asset_ids(
+    project: ProjectRecord,
+    vi_profile: dict[str, Any] | None = None,
+    *,
+    prompt_context: str = "",
+) -> list[str]:
     """References that are actually eligible to be sent to the image API.
 
     Strategy and prompt agents can inspect VI or competitor images as context, but the
-    image API should receive only product-locking references plus a real uploaded logo.
-    This keeps generation traceable and avoids leaking unused candidate images into the
-    final "reference images" UI.
+    image API should receive only product-locking references, explicitly mentioned
+    prompt references, plus a real uploaded logo. This keeps generation traceable and
+    avoids leaking unused candidate images into the final "reference images" UI.
     """
     ids: list[str] = []
-    for asset_id in _product_reference_asset_ids(project):
+    seen: set[str] = set()
+
+    def add(asset_id: str) -> None:
+        if asset_id and asset_id not in seen:
+            ids.append(asset_id)
+            seen.add(asset_id)
+
+    for asset_id in _product_reference_asset_ids(project, prompt_context=prompt_context):
         asset = _asset_by_id(project, asset_id)
         text_role = _project_text_role(project, asset)
         if text_role != "product_image" and (
@@ -539,8 +574,26 @@ def _image_generation_reference_asset_ids(project: ProjectRecord, vi_profile: di
             or _is_vi_reference_asset(asset)
         ):
             continue
-        ids.append(asset_id)
+        add(asset_id)
         break
+
+    mentioned_product_ids: list[str] = []
+    mentioned_other_ids: list[str] = []
+    for asset_id in _prompt_mentioned_image_asset_ids(project, prompt_context):
+        try:
+            asset = _asset_by_id(project, asset_id)
+        except StopIteration:
+            continue
+        context_role = _asset_role_from_text(prompt_context, asset)
+        text_role = context_role or _project_text_role(project, asset)
+        if _is_product_reference_asset(asset, text_role=text_role):
+            mentioned_product_ids.append(asset_id)
+        else:
+            mentioned_other_ids.append(asset_id)
+    for asset_id in mentioned_product_ids:
+        add(asset_id)
+    for asset_id in mentioned_other_ids:
+        add(asset_id)
 
     logo_id = ""
     if isinstance(vi_profile, dict):
@@ -562,10 +615,146 @@ def _image_generation_reference_asset_ids(project: ProjectRecord, vi_profile: di
             continue
         text_role = _project_text_role(project, asset)
         if _is_image_asset(asset) and text_role != "product_image" and _is_logo_reference_asset(asset, text_role=text_role):
-            ids.append(asset_id)
+            add(asset_id)
             break
 
     return ids[:4]
+
+
+def _image_reference_prompt_context(
+    *,
+    confirmed_strategy: dict[str, Any],
+    confirmed_image_prompt: dict[str, Any] | None = None,
+    revision_request: str = "",
+    extra_context: str = "",
+) -> str:
+    parts: list[str] = []
+    for value in [
+        confirmed_image_prompt,
+        confirmed_strategy,
+        revision_request,
+        extra_context,
+    ]:
+        if not value:
+            continue
+        if isinstance(value, str):
+            parts.append(value)
+        else:
+            try:
+                parts.append(json.dumps(value, ensure_ascii=False, sort_keys=True))
+            except TypeError:
+                parts.append(str(value))
+    return "\n".join(parts)
+
+
+def _prompt_mentioned_image_asset_ids(project: ProjectRecord, prompt_context: str) -> list[str]:
+    if not prompt_context:
+        return []
+    mentions: list[tuple[int, int, str]] = []
+    for index, asset in enumerate(project.assets):
+        if not _is_image_asset(asset) or _is_generated_image_asset(asset):
+            continue
+        positions = _asset_positions_in_text(prompt_context, asset)
+        if positions:
+            mentions.append((positions[0], index, asset.id))
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for _, _, asset_id in sorted(mentions):
+        if asset_id in seen:
+            continue
+        ordered.append(asset_id)
+        seen.add(asset_id)
+    return ordered
+
+
+def _asset_positions_in_text(text: str, asset: Any) -> list[int]:
+    if not text:
+        return []
+    lowered = text.lower()
+    candidates = [
+        str(asset.filename or ""),
+        str((asset.metadata or {}).get("display_name") or ""),
+        str((asset.metadata or {}).get("original_filename") or ""),
+    ]
+    exact_positions = _plain_positions_for_candidates(lowered, candidates)
+    if exact_positions:
+        return exact_positions
+    filename = str(asset.filename or "")
+    stem = filename.rsplit(".", 1)[0] if "." in filename else ""
+    if len(stem.strip()) < 4 or stem.strip().lower() in {"logo", "product", "competitor", "image", "img", "photo"}:
+        return []
+    return _plain_positions_for_candidates(lowered, [stem])
+
+
+def _plain_positions_for_candidates(text: str, candidates: list[str]) -> list[int]:
+    positions: list[int] = []
+    for candidate in {item.strip().lower() for item in candidates if item and item.strip()}:
+        start = 0
+        while True:
+            index = text.find(candidate, start)
+            if index < 0:
+                break
+            positions.append(index)
+            start = index + len(candidate)
+    return sorted(set(positions))
+
+
+def _asset_role_from_text(text: str, asset: Any) -> str:
+    positions = _asset_positions_in_text(text, asset)
+    if not positions:
+        return ""
+    lowered = text.lower()
+    role_terms = {
+        "logo": ["logo", "brand logo", "标志", "商标", "品牌logo", "品牌 logo"],
+        "vi_reference": ["vi", "brand guide", "brand guideline", "品牌规范", "视觉规范", "品牌参考"],
+        "competitor_info": ["competitor", "rival", "竞品图", "竞品资料", "竞品", "竞对", "对手", "爆款"],
+        "product_image": [
+            "product image",
+            "product photo",
+            "product reference",
+            "产品拼装图",
+            "产品收藏系列",
+            "产品系列",
+            "产品参考图",
+            "产品图",
+            "产品图片",
+            "参考图",
+            "主图",
+            "效果图",
+            "拼装图",
+            "系列图",
+            "收藏系列",
+            "产品外观",
+        ],
+    }
+    for position in positions:
+        before = lowered[max(0, position - 48): position]
+        best: tuple[int, str] | None = None
+        for role, terms in role_terms.items():
+            for term in terms:
+                found = before.rfind(term.lower())
+                if found >= 0 and (best is None or found > best[0]):
+                    best = (found, role)
+        if best:
+            return best[1]
+        after = lowered[position: position + 48]
+        for role, terms in role_terms.items():
+            if any(term.lower() in after for term in terms):
+                return role
+    return ""
+
+
+def _is_generated_image_asset(asset: Any) -> bool:
+    metadata = asset.metadata or {}
+    role = str(metadata.get("asset_role") or "").lower()
+    memory = metadata.get("asset_memory") if isinstance(metadata.get("asset_memory"), dict) else {}
+    memory_role = str(memory.get("role") or memory.get("asset_role") or "").lower()
+    generated_roles = {
+        "generated_visual_base",
+        "composed_design_output",
+        "generated_design_output",
+    }
+    return role in generated_roles or memory_role in generated_roles
 
 
 def _is_image_asset(asset: Any) -> bool:
