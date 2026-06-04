@@ -530,7 +530,7 @@ def _image_generation_reference_asset_ids(project: ProjectRecord, vi_profile: di
     final "reference images" UI.
     """
     ids: list[str] = []
-    for asset_id in _product_reference_asset_ids(project)[:1]:
+    for asset_id in _product_reference_asset_ids(project):
         asset = _asset_by_id(project, asset_id)
         text_role = _project_text_role(project, asset)
         if text_role != "product_image" and (
@@ -540,6 +540,7 @@ def _image_generation_reference_asset_ids(project: ProjectRecord, vi_profile: di
         ):
             continue
         ids.append(asset_id)
+        break
 
     logo_id = ""
     if isinstance(vi_profile, dict):
@@ -587,6 +588,8 @@ def _asset_memory_role(asset: Any) -> str:
 
 def _is_product_reference_asset(asset: Any, *, text_role: str = "") -> bool:
     if not _is_image_asset(asset):
+        return False
+    if text_role in {"logo", "vi_reference", "competitor_info"}:
         return False
     metadata = asset.metadata or {}
     memory = metadata.get("asset_memory") if isinstance(metadata.get("asset_memory"), dict) else {}
@@ -673,19 +676,16 @@ def _project_text_role(project: ProjectRecord, asset: Any) -> str:
     ).lower()
     if not text:
         return ""
-    candidates = [
+    exact_candidates = [
         str(asset.filename or ""),
         str((asset.metadata or {}).get("display_name") or ""),
         str((asset.metadata or {}).get("original_filename") or ""),
     ]
     stem = str(asset.filename or "")
-    if "." in stem:
-        candidates.append(stem.rsplit(".", 1)[0])
-    positions: list[int] = []
-    for candidate in {item for item in candidates if item}:
-        index = text.find(f"@{candidate.lower()}")
-        if index >= 0:
-            positions.append(index)
+    stem_candidates = [stem.rsplit(".", 1)[0]] if "." in stem else []
+    positions = _mention_positions_for_candidates(text, exact_candidates)
+    if not positions:
+        positions = _mention_positions_for_candidates(text, stem_candidates)
     if not positions:
         return ""
     role_terms = {
@@ -706,6 +706,20 @@ def _project_text_role(project: ProjectRecord, asset: Any) -> str:
         if best:
             return best[1]
     return ""
+
+
+def _mention_positions_for_candidates(text: str, candidates: list[str]) -> list[int]:
+    positions: list[int] = []
+    for candidate in {item.strip().lower() for item in candidates if item and item.strip()}:
+        marker = f"@{candidate}"
+        start = 0
+        while True:
+            index = text.find(marker, start)
+            if index < 0:
+                break
+            positions.append(index)
+            start = index + len(marker)
+    return sorted(set(positions))
 
 
 def _asset_by_id(project: ProjectRecord, asset_id: str):

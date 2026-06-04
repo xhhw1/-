@@ -2223,8 +2223,25 @@ textarea:disabled {
 }
 
 .sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border-right-color: var(--border);
   background: linear-gradient(180deg, #fff 0%, var(--sidebar-bg) 100%);
+}
+
+.sb-brand,
+.sb-account-card,
+.sb-nav,
+.sidebar-search,
+.selection-bar,
+.sb-sec {
+  flex: 0 0 auto;
+}
+
+.project-list {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .sb-brand {

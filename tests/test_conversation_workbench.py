@@ -458,6 +458,30 @@ def test_image_generation_references_exclude_competitor_and_vi_candidates() -> N
     assert _image_generation_reference_asset_ids(project, {"logo_asset_id": "logo"}) == ["product", "logo"]
 
 
+def test_image_generation_references_continue_after_competitor_candidate() -> None:
+    project = ProjectRecord(
+        workflow_type="packaging",
+        brief=ProjectBrief(raw_text="竞品图@WPS图片.jpeg 产品图@WPS图片.png 品牌logo@logo.png"),
+        assets=[
+            AssetRef(id="competitor", kind="product_image", filename="WPS图片.jpeg", uri="competitor.png", mime_type="image/jpeg"),
+            AssetRef(id="product", kind="product_image", filename="WPS图片.png", uri="product.png", mime_type="image/png"),
+            AssetRef(id="logo", kind="logo", filename="logo.png", uri="logo.png", mime_type="image/png"),
+        ],
+    )
+
+    assert _product_reference_asset_ids(project) == ["product"]
+    assert _image_generation_reference_asset_ids(project, {"logo_asset_id": "logo"}) == ["product", "logo"]
+
+
+def test_mention_role_prefers_exact_filename_over_shared_stem() -> None:
+    content = "竞品图@WPS图片.jpeg 产品图@WPS图片.png 品牌logo@logo.png"
+    competitor = AssetRef(id="competitor", kind="other", filename="WPS图片.jpeg", uri="competitor.png", mime_type="image/jpeg")
+    product = AssetRef(id="product", kind="other", filename="WPS图片.png", uri="product.png", mime_type="image/png")
+
+    assert _role_from_text_mention(content, competitor) == "competitor_info"
+    assert _role_from_text_mention(content, product) == "product_image"
+
+
 
 
 def _create_packaging_conversation(client: TestClient, *, with_product_image: bool) -> dict:

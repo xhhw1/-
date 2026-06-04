@@ -429,20 +429,30 @@ def _nearest_role_label(lowered_content: str, mention_position: int) -> str:
 
 
 def _asset_mention_positions(content: str, asset: AssetRef) -> list[int]:
-    candidates = [
+    exact_candidates = [
         asset.filename,
         str(asset.metadata.get("display_name") or ""),
         str(asset.metadata.get("original_filename") or ""),
     ]
     stem = re.sub(r"\.[A-Za-z0-9]+$", "", asset.filename)
-    if stem and stem != asset.filename:
-        candidates.append(stem)
+    stem_candidates = [stem] if stem and stem != asset.filename else []
+    exact_positions = _mention_positions_for_candidates(content, exact_candidates)
+    if exact_positions:
+        return exact_positions
+    return _mention_positions_for_candidates(content, stem_candidates)
+
+
+def _mention_positions_for_candidates(content: str, candidates: list[str]) -> list[int]:
     positions: list[int] = []
     for candidate in {item for item in candidates if item}:
         for marker in [f"@{candidate}", f"@{candidate.strip()}"]:
-            index = content.find(marker)
-            if index >= 0:
+            start = 0
+            while True:
+                index = content.find(marker, start)
+                if index < 0:
+                    break
                 positions.append(index)
+                start = index + len(marker)
     return sorted(set(positions))
 
 

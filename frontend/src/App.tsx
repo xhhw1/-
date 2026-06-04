@@ -566,8 +566,12 @@ export function App() {
           <span className="search-icon">⌕</span>
           <span>搜索项目...</span>
         </div>
+        <div className="sb-sec">
+          <span>所有项目</span>
+          <button className="sb-sec-action" type="button" title="清理无项目素材">⌁</button>
+        </div>
         <SelectionBar
-          hidden={!manageMode}
+          hidden={!manageMode || conversationsData.length === 0}
           selectedCount={selectedCount}
           allSelected={selectedCount === conversationsData.length && conversationsData.length > 0}
           onSelectAll={() => setSelectedConversationIds(new Set(conversationsData.map((item) => item.session.id)))}
@@ -584,10 +588,6 @@ export function App() {
             });
           }}
         />
-        <div className="sb-sec">
-          <span>所有项目</span>
-          <button className="sb-sec-action" type="button" title="清理无项目素材">⌁</button>
-        </div>
         <ConversationList
           items={conversationsData}
           activeId={selectedId}
@@ -2506,14 +2506,20 @@ function roleFromMessageContext(content: string, asset: AssetRef) {
 }
 
 function assetMentionPositions(content: string, asset: AssetRef) {
-  const candidates = new Set([
+  const exactCandidates = [
     asset.filename,
     String(asset.metadata?.display_name ?? ""),
-    String(asset.metadata?.original_filename ?? ""),
-    asset.filename.replace(/\.[A-Za-z0-9]+$/, "")
-  ].filter(Boolean));
+    String(asset.metadata?.original_filename ?? "")
+  ].filter(Boolean);
+  const exactPositions = mentionPositionsForCandidates(content, exactCandidates);
+  if (exactPositions.length) return exactPositions;
+  const stem = asset.filename.replace(/\.[A-Za-z0-9]+$/, "");
+  return mentionPositionsForCandidates(content, stem && stem !== asset.filename ? [stem] : []);
+}
+
+function mentionPositionsForCandidates(content: string, candidates: string[]) {
   const positions: number[] = [];
-  for (const candidate of candidates) {
+  for (const candidate of new Set(candidates.filter(Boolean))) {
     const marker = `@${candidate}`;
     let index = content.indexOf(marker);
     while (index >= 0) {
