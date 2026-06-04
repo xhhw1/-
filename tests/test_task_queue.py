@@ -13,6 +13,8 @@ from ai_visual_agent.services.task_queue import (
     BackgroundTaskQueue,
     InMemoryBackgroundJobStore,
     SqlBackgroundJobStore,
+    current_background_job_id,
+    raise_if_current_job_cancelled,
     register_background_handler,
 )
 from ai_visual_agent.services.task_queue import background_task_queue
@@ -58,6 +60,24 @@ def test_memory_background_job_store_cancel_marks_terminal_state() -> None:
     assert cancelled.error == "user cancelled"
     assert cancelled.finished_at is not None
     assert cancelled.heartbeat_at == cancelled.finished_at
+
+
+def test_running_handler_can_observe_current_job_cancellation() -> None:
+    queue = BackgroundTaskQueue()
+    queue.store = InMemoryBackgroundJobStore()
+    job = queue.store.create(BackgroundJob(kind="agent_run"))
+    observed_job_ids: list[str] = []
+
+    def handler() -> None:
+        observed_job_ids.append(current_background_job_id())
+        queue.cancel(observed_job_ids[0], reason="cancelled_by_user")
+        raise_if_current_job_cancelled()
+
+    queue._execute(job_id=job.id, handler=handler, kwargs={})
+
+    assert observed_job_ids == [job.id]
+    assert queue.store.get(job.id).status == "cancelled"
+    assert queue.store.get(job.id).error == "cancelled_by_user"
 
 
 def test_cancel_background_task_api_for_owned_project() -> None:

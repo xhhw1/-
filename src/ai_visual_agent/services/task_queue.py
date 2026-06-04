@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import socket
-from threading import BoundedSemaphore, Thread
+from threading import BoundedSemaphore, Thread, local
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -22,6 +22,31 @@ def _now() -> str:
 
 
 _BACKGROUND_HANDLERS: dict[str, Callable[..., None]] = {}
+_CURRENT_JOB = local()
+
+
+class TaskCancelledError(RuntimeError):
+    """Raised inside a worker when the current background job has been cancelled."""
+
+
+def current_background_job_id() -> str:
+    return str(getattr(_CURRENT_JOB, "job_id", "") or "")
+
+
+def is_current_background_job_cancelled() -> bool:
+    job_id = current_background_job_id()
+    if not job_id:
+        return False
+    try:
+        queue = getattr(_CURRENT_JOB, "queue", None) or background_task_queue
+        return queue.store.get(job_id).status == "cancelled"
+    except Exception:
+        return False
+
+
+def raise_if_current_job_cancelled() -> None:
+    if is_current_background_job_cancelled():
+        raise TaskCancelledError("cancelled_by_user")
 
 
 def register_background_handler(kind: str, handler: Callable[..., None]) -> None:
@@ -360,10 +385,15 @@ class BackgroundTaskQueue:
     def _execute(self, *, job_id: str, handler: Callable[..., None], kwargs: dict[str, Any]) -> None:
         if self.store.get(job_id).status == "cancelled":
             return
+        _CURRENT_JOB.job_id = job_id
+        _CURRENT_JOB.queue = self
         self.store.mark(job_id, "running")
         try:
             self.store.heartbeat(job_id)
             handler(**kwargs)
+        except TaskCancelledError as exc:
+            self.store.cancel(job_id, reason=str(exc) or "cancelled")
+            return
         except Exception as exc:
             if self.store.get(job_id).status == "cancelled":
                 return
@@ -372,6 +402,10 @@ class BackgroundTaskQueue:
         else:
             if self.store.get(job_id).status != "cancelled":
                 self.store.mark(job_id, "succeeded")
+        finally:
+            if getattr(_CURRENT_JOB, "job_id", "") == job_id:
+                _CURRENT_JOB.job_id = ""
+                _CURRENT_JOB.queue = None
 
     def run_registered_job(self, job_id: str) -> None:
         job = self.store.get(job_id)

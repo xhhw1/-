@@ -155,6 +155,7 @@ export function App() {
     enabled: apiReady && Boolean(currentProjectId),
     refetchInterval: apiReady && currentProjectId ? 2000 : false
   });
+  const activeTask = activeBackgroundTask(tasks.data ?? []);
 
   const cancelTaskMutation = useMutation({
     mutationFn: cancelBackgroundTask,
@@ -614,15 +615,6 @@ export function App() {
       <main className="chat-area" aria-live="polite">
         <TopBar
           detail={currentDetail}
-          healthLabel={healthLabel(health.data)}
-          tasks={tasks.data ?? []}
-          taskActionBusy={cancelTaskMutation.isPending || retryTaskMutation.isPending}
-          onRefresh={() => {
-            queryClient.invalidateQueries({ queryKey: ["health"] });
-            queryClient.invalidateQueries({ queryKey: ["conversations"] });
-            if (currentProjectId) queryClient.invalidateQueries({ queryKey: ["tasks", currentProjectId] });
-            if (selectedId) queryClient.invalidateQueries({ queryKey: ["conversation", selectedId] });
-          }}
           onDelete={() => {
             if (!selectedId || !currentDetail) return;
             setConfirmState({
@@ -635,8 +627,6 @@ export function App() {
               onConfirm: () => deleteMutation.mutate(selectedId)
             });
           }}
-          onCancelTask={(jobId) => cancelTaskMutation.mutate(jobId)}
-          onRetryTask={(jobId) => retryTaskMutation.mutate(jobId)}
         />
 
         {activeView === "users" && canManageUsers ? (
@@ -708,12 +698,15 @@ export function App() {
             projectId={projectId(currentDetail)}
             disabled={busy}
             pendingGate={Boolean(pendingGate)}
+            activeTask={activeTask}
+            stopBusy={cancelTaskMutation.isPending}
             onFiles={handleFiles}
             onChange={setDraft}
             onAttachAsset={(asset) => setComposerAssets((current) => uniqueAssets([...current, asset]))}
             onRemoveAsset={(assetId) => setComposerAssets((current) => current.filter((asset) => asset.id !== assetId))}
             onRemovePendingUpload={removePendingUpload}
             onSubmit={submitMessage}
+            onStopTask={(taskId) => cancelTaskMutation.mutate(taskId)}
           />
         ) : null}
       </main>
@@ -846,22 +839,10 @@ function SelectionBar({
 
 function TopBar({
   detail,
-  healthLabel,
-  tasks,
-  taskActionBusy,
-  onRefresh,
-  onDelete,
-  onCancelTask,
-  onRetryTask
+  onDelete
 }: {
   detail: ConversationDetail | null | undefined;
-  healthLabel: string;
-  tasks: BackgroundTask[];
-  taskActionBusy: boolean;
-  onRefresh: () => void;
   onDelete: () => void;
-  onCancelTask: (jobId: string) => void;
-  onRetryTask: (jobId: string) => void;
 }) {
   return (
     <div className="mn-top">
@@ -871,14 +852,7 @@ function TopBar({
           <span className="mn-top-model-badge">{detail ? workflowLabel(detail.session.workflow_type) : "Agent"}</span>
         </div>
       </div>
-      <div className="mn-top-r">
-        <TaskStatusStrip
-          tasks={tasks}
-          busy={taskActionBusy}
-          onCancelTask={onCancelTask}
-          onRetryTask={onRetryTask}
-        />
-      </div>
+      <div className="mn-top-r" />
     </div>
   );
 }
@@ -1449,12 +1423,15 @@ function Composer({
   projectId,
   disabled,
   pendingGate,
+  activeTask,
+  stopBusy,
   onFiles,
   onChange,
   onAttachAsset,
   onRemoveAsset,
   onRemovePendingUpload,
-  onSubmit
+  onSubmit,
+  onStopTask
 }: {
   value: string;
   assets: AssetRef[];
@@ -1463,12 +1440,15 @@ function Composer({
   projectId: string;
   disabled: boolean;
   pendingGate: boolean;
+  activeTask?: BackgroundTask | null;
+  stopBusy: boolean;
   onFiles: (files: FileList | null) => void;
   onChange: (value: string) => void;
   onAttachAsset: (asset: AssetRef) => void;
   onRemoveAsset: (assetId: string) => void;
   onRemovePendingUpload: (uploadId: string) => void;
   onSubmit: () => void;
+  onStopTask: (taskId: string) => void;
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1502,8 +1482,16 @@ function Composer({
     textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 36), 132)}px`;
   }, [value]);
 
+  const taskIsActive = Boolean(activeTask);
+  const inputDisabled = disabled && !taskIsActive;
   return (
-    <form className="chat-input-wrap" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+    <form
+      className="chat-input-wrap"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!taskIsActive) onSubmit();
+      }}
+    >
       <input type="hidden" value="other" readOnly />
       <div className="chat-input-box">
         <div className={`file-chips-area${selectedAssets.length || pendingUploads.length ? "" : " hidden"}`}>
@@ -1588,14 +1576,14 @@ function Composer({
         </div>
         <div className="input-row">
           <div className="left-actions">
-            <div className={`icon-btn upload-btn${disabled ? " disabled" : ""}`} title="上传文件">
+            <div className={`icon-btn upload-btn${inputDisabled ? " disabled" : ""}`} title="上传文件">
               <Paperclip size={17} weight="regular" aria-hidden="true" />
               <input
                 ref={fileRef}
                 className="file-input-native"
                 type="file"
                 multiple
-                disabled={disabled}
+                disabled={inputDisabled}
                 onChange={(event) => {
                   onFiles(event.target.files);
                   event.target.value = "";
@@ -1609,20 +1597,26 @@ function Composer({
               className="chat-textarea"
               rows={1}
               value={value}
-              disabled={disabled}
-              placeholder={pendingGate ? "对当前结果不满意，可以直接输入修改意见；也可以输入“确认”继续..." : "向 PackVision 发送消息..."}
+              disabled={inputDisabled}
+              placeholder={taskIsActive ? "任务运行中，可先输入下一轮修改意见；点击右侧停止按钮可暂停当前任务。" : pendingGate ? "对当前结果不满意，可以直接输入修改意见；也可以输入“确认”继续..." : "向 PackVision 发送消息..."}
               onChange={(event) => onChange(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  onSubmit();
+                  if (!taskIsActive) onSubmit();
                 }
               }}
             />
-            <span className="attachment-hint">{pendingGate ? "待确认状态下也可发送修正意见，Agent 会重新输出当前节点" : "上传后输入 @ 选择文件"}</span>
+            <span className="attachment-hint">{taskIsActive ? "当前 Agent 正在运行；停止按钮会真实取消后台任务" : pendingGate ? "待确认状态下也可发送修正意见，Agent 会重新输出当前节点" : "上传后输入 @ 选择文件"}</span>
           </div>
-          <button className="send-btn" type="submit" disabled={disabled || (!value.trim() && !selectedAssets.length && !pendingUploads.length)}>
-            <span className="send-icon">➤</span>
+          <button
+            className={`send-btn${taskIsActive ? " stop" : ""}`}
+            type={taskIsActive ? "button" : "submit"}
+            disabled={taskIsActive ? stopBusy : disabled || (!value.trim() && !selectedAssets.length && !pendingUploads.length)}
+            title={taskIsActive ? "暂停当前 Agent 任务" : "发送"}
+            onClick={taskIsActive && activeTask ? () => onStopTask(activeTask.id) : undefined}
+          >
+            <span className="send-icon">{taskIsActive ? "■" : "➤"}</span>
           </button>
         </div>
       </div>
@@ -2023,6 +2017,13 @@ function confirmedProgress(detail: ConversationDetail) {
   return { total, confirmed: Math.min(total, confirmed) };
 }
 
+function activeBackgroundTask(tasks: BackgroundTask[]) {
+  return [...tasks]
+    .filter((task) => task.status === "queued" || task.status === "running")
+    .sort((a, b) => taskPriority(a.status) - taskPriority(b.status) || Date.parse(b.created_at ?? "") - Date.parse(a.created_at ?? ""))
+    .at(0) ?? null;
+}
+
 function lastMessagePreview(detail: ConversationDetail) {
   return shortText(detail.messages.at(-1)?.content || "等待输入", 24);
 }
@@ -2124,7 +2125,7 @@ function referenceIdsFromPayload(payload: Record<string, unknown>, layout: Recor
 }
 
 function generationStatusLabel(status: string) {
-  return ({ running: "生成中", completed: "已完成", partial_failed: "部分完成", failed: "失败" }[status] ?? "待生成");
+  return ({ running: "生成中", completed: "已完成", partial_failed: "部分完成", failed: "失败", cancelled: "已暂停" }[status] ?? "待生成");
 }
 
 function viSummaryFields(payload: Record<string, unknown>): ResultField[] {

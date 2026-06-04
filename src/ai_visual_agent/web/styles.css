@@ -2718,6 +2718,25 @@ textarea:disabled {
   transition: background 0.12s, transform 0.12s;
 }
 
+.send-btn.stop {
+  background: #1d2230;
+  color: #fff;
+}
+
+.send-btn.stop .send-icon {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.send-btn.stop:disabled {
+  opacity: 0.62;
+}
+
 .send-btn:active {
   transform: scale(0.96);
 }

@@ -16,6 +16,7 @@ from ai_visual_agent.services.audit_store import audit_store
 from ai_visual_agent.services.project_store import project_store
 from ai_visual_agent.services.rate_limiter import image_generation_budget
 from ai_visual_agent.services.storage import asset_storage
+from ai_visual_agent.services.task_queue import TaskCancelledError, raise_if_current_job_cancelled
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,9 @@ class OpenAIImageGenerationProvider:
                 size=size,
                 quality=settings.image_generation_quality,
             )
+        raise_if_current_job_cancelled()
         image = _image_bytes_from_response(response)
+        raise_if_current_job_cancelled()
         return asset_storage.save_bytes(
             project_id=job.project_id,
             kind="other",
@@ -196,11 +199,15 @@ def generate_design_outputs(
 
     for job in jobs:
         try:
+            raise_if_current_job_cancelled()
             item = _generate_design_item(
                 job=job,
                 image_provider=image_provider,
                 allow_mock_fallback=allow_mock_fallback,
             )
+            raise_if_current_job_cancelled()
+        except TaskCancelledError:
+            raise
         except Exception as exc:
             error_payload = {
                 "name": job.name,
@@ -241,9 +248,13 @@ def _generate_design_item(
     image_generation_error = ""
     image_generation_fallback_used = False
     try:
+        raise_if_current_job_cancelled()
         base_asset = image_provider.generate_base(job)
+        raise_if_current_job_cancelled()
         image_engine = str(base_asset.metadata.get("engine") or image_provider.engine_name)
         _register_generated_asset(job.project_id, base_asset)
+    except TaskCancelledError:
+        raise
     except Exception as exc:
         if not allow_mock_fallback:
             raise RuntimeError(f"Image generation failed for {job.name}: {type(exc).__name__}: {exc}") from exc
@@ -418,6 +429,7 @@ def _generate_with_reference_if_available(
     size: str,
     quality: str,
 ) -> Any:
+    raise_if_current_job_cancelled()
     reference_images = _reference_image_assets(job)
     if job.reference_asset_ids and not reference_images:
         raise RuntimeError(
@@ -451,12 +463,15 @@ def _generate_with_reference_if_available(
                 return _call_image_api_with_retries(
                     edit_with_reference
                 )
+        except TaskCancelledError:
+            raise
         except Exception as exc:
             raise RuntimeError(
                 "Image edit with product reference failed after retries; "
                 "refusing to generate without the provided product image."
             ) from exc
 
+    raise_if_current_job_cancelled()
     return _call_image_api_with_retries(
         lambda: client.images.generate(
             model=model,
@@ -532,12 +547,14 @@ def _post_image_generation_with_retries(
 ) -> Any:
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
+        raise_if_current_job_cancelled()
         try:
             response = httpx_module.post(endpoint, headers=headers, json=body, timeout=timeout)
         except (httpx_module.TimeoutException, httpx_module.TransportError) as exc:
             last_error = exc
             if attempt >= attempts:
                 raise RuntimeError(_image_api_retry_exhausted_message(exc, attempts)) from exc
+            raise_if_current_job_cancelled()
             time.sleep(min(2 ** (attempt - 1), 4))
             continue
         status_code = int(getattr(response, "status_code", 200) or 200)
@@ -545,6 +562,7 @@ def _post_image_generation_with_retries(
             return response
         if attempt >= attempts:
             return response
+        raise_if_current_job_cancelled()
         time.sleep(min(2 ** (attempt - 1), 4))
     if last_error:
         raise RuntimeError(_image_api_retry_exhausted_message(last_error, attempts)) from last_error
@@ -554,6 +572,7 @@ def _post_image_generation_with_retries(
 def _call_image_api_with_retries(operation: Any, attempts: int = 4) -> Any:
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
+        raise_if_current_job_cancelled()
         try:
             return operation()
         except Exception as exc:
@@ -562,6 +581,7 @@ def _call_image_api_with_retries(operation: Any, attempts: int = 4) -> Any:
             last_error = exc
             if attempt >= attempts:
                 raise RuntimeError(_image_api_retry_exhausted_message(exc, attempts)) from exc
+            raise_if_current_job_cancelled()
             time.sleep(min(2 ** (attempt - 1), 4))
     if last_error:
         raise RuntimeError(_image_api_retry_exhausted_message(last_error, attempts)) from last_error

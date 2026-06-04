@@ -51,7 +51,12 @@ from ai_visual_agent.services.conversation_store import conversation_store
 from ai_visual_agent.services.memory_store import get_memory_store
 from ai_visual_agent.services.project_store import project_store
 from ai_visual_agent.services.storage import asset_storage
-from ai_visual_agent.services.task_queue import background_task_queue, register_background_handler
+from ai_visual_agent.services.task_queue import (
+    TaskCancelledError,
+    background_task_queue,
+    raise_if_current_job_cancelled,
+    register_background_handler,
+)
 
 
 def _owner_id(value: str | None = None) -> str:
@@ -1388,6 +1393,7 @@ def _start_agent_background(*, session_id: str, project_id: str, target_agent: s
 
 def _run_target_agent_background(*, session_id: str, project_id: str, target_agent: str, source_message: str = "") -> None:
     try:
+        raise_if_current_job_cancelled()
         project = project_store.get(project_id)
         _run_target_agent(
             session_id=session_id,
@@ -1395,6 +1401,16 @@ def _run_target_agent_background(*, session_id: str, project_id: str, target_age
             target_agent=target_agent,
             source_message=source_message,
         )
+        raise_if_current_job_cancelled()
+    except TaskCancelledError:
+        conversation_store.add_message(
+            session_id=session_id,
+            role="agent",
+            message_type="status",
+            content="当前 Agent 任务已暂停，后台不会继续推进该节点。你可以修改要求后重新发送，或点击确认继续下一步。",
+            payload={"next_agent": target_agent, "background": True, "cancelled": True},
+        )
+        raise
     except Exception as exc:
         conversation_store.add_message(
             session_id=session_id,
@@ -1406,6 +1422,7 @@ def _run_target_agent_background(*, session_id: str, project_id: str, target_age
 
 
 def _run_target_agent(*, session_id: str, project: ProjectRecord, target_agent: str, source_message: str = "") -> None:
+    raise_if_current_job_cancelled()
     session = conversation_store.get_session(session_id)
     if not _check_dependencies_before_agent(session_id=session_id, project=project, target_agent=target_agent):
         return
@@ -1663,6 +1680,7 @@ def _run_target_agent(*, session_id: str, project: ProjectRecord, target_agent: 
             )
 
         try:
+            raise_if_current_job_cancelled()
             output = run_design_agent(
                 project=project,
                 workflow_type=workflow_type,
@@ -1674,6 +1692,18 @@ def _run_target_agent(*, session_id: str, project: ProjectRecord, target_agent: 
                 on_item_generated=on_item_generated,
                 on_generation_error=on_generation_error,
             )
+            raise_if_current_job_cancelled()
+        except TaskCancelledError:
+            generation_errors.append({"name": "cancelled", "error": "cancelled_by_user"})
+            publish_progress(items=[], status="cancelled", errors=generation_errors)
+            conversation_store.add_message(
+                session_id=session_id,
+                role="agent",
+                message_type="status",
+                content="出图任务已暂停，已停止后续生成与写入。你可以调整要求后重新发送。",
+                payload={"review_gate_id": gate.id, "generation_cancelled": True},
+            )
+            raise
         except Exception as exc:
             generation_errors.append({"name": "setup", "error": str(exc)})
             publish_progress(items=[], status="failed", errors=generation_errors)
@@ -1845,6 +1875,8 @@ def _design_gate_title(*, workflow_type: str, status: str, completed: int, total
         return f"{label}部分完成（{completed}/{total}）"
     if status == "failed":
         return f"{label}生成失败（{completed}/{total}）"
+    if status == "cancelled":
+        return f"{label}已暂停（{completed}/{total}）"
     return f"{label}生成中（{completed}/{total}）"
 
 
@@ -1859,6 +1891,8 @@ def _design_gate_summary(*, status: str, completed: int, total: int, errors: lis
     if status == "failed":
         latest_error = errors[-1].get("error", "") if errors else ""
         return f"尚未生成成功视图。失败原因：{latest_error}"
+    if status == "cancelled":
+        return "当前生成任务已由用户暂停，后续生成与结果写入已停止。"
     if total == 1:
         return "出图 Agent 正在生成包装主图，完成后会写入当前审核卡。"
     return "出图 Agent 正在逐面生成，已完成的视图会先写入当前审核卡。"
