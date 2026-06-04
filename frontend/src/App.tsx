@@ -225,6 +225,13 @@ export function App() {
   const loginMutation = useMutation({
     mutationFn: login,
     onSuccess: (data) => {
+      queryClient.removeQueries({ queryKey: ["conversations"] });
+      queryClient.removeQueries({ queryKey: ["conversation"] });
+      queryClient.removeQueries({ queryKey: ["tasks"] });
+      setSelectedId(null);
+      setDraft("");
+      setComposerAssets([]);
+      clearPendingUploads();
       setStoredAuthToken(data.access_token);
       setAuthToken(data.access_token);
       queryClient.invalidateQueries({ queryKey: ["health"] });
@@ -1469,11 +1476,21 @@ function Composer({
   const mentionPendingUploads =
     mentionQuery === null
       ? []
-      : pendingUploads.filter((upload) => upload.name.toLowerCase().includes(normalizedMentionQuery)).slice(0, 8);
+      : mentionMatches(
+          pendingUploads,
+          normalizedMentionQuery,
+          (upload) => upload.name,
+          8
+        );
   const mentionAssets =
     mentionQuery === null
       ? []
-      : assets.filter((asset) => asset.filename.toLowerCase().includes(normalizedMentionQuery)).slice(0, 18);
+      : mentionMatches(
+          assets,
+          normalizedMentionQuery,
+          (asset) => asset.filename,
+          18
+        );
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -2656,9 +2673,15 @@ function mentionSearchQuery(value: string) {
 }
 
 function isActiveMentionQuery(query: string) {
-  if (query.length > 24) return false;
-  if (/\.(png|jpe?g|webp|gif|pptx?|pdf|docx?|xlsx?|xls)$/i.test(query)) return false;
+  if (query.length > 96) return false;
   return true;
+}
+
+function mentionMatches<T>(items: T[], query: string, label: (item: T) => string, limit: number) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return items.slice(0, limit);
+  const matched = items.filter((item) => label(item).toLowerCase().includes(normalized));
+  return (matched.length ? matched : items).slice(0, limit);
 }
 
 function replaceTrailingMention(value: string, filename: string) {
