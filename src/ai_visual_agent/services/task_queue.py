@@ -3,10 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import json
+import logging
 import os
 from pathlib import Path
 import socket
 from threading import BoundedSemaphore, Thread, local
+import time
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -23,6 +25,7 @@ def _now() -> str:
 
 _BACKGROUND_HANDLERS: dict[str, Callable[..., None]] = {}
 _CURRENT_JOB = local()
+logger = logging.getLogger(__name__)
 
 
 class TaskCancelledError(RuntimeError):
@@ -422,8 +425,15 @@ class BackgroundTaskQueue:
         client = self._redis()
         instance_id = _worker_instance_id()
         while True:
-            self.record_worker_heartbeat(instance_id=instance_id)
-            item = client.blpop(self.redis_queue_name, timeout=poll_timeout_seconds)
+            try:
+                self.record_worker_heartbeat(instance_id=instance_id)
+                item = client.blpop(self.redis_queue_name, timeout=poll_timeout_seconds)
+            except Exception as exc:
+                logger.warning("Redis worker poll failed; reconnecting: %s: %s", type(exc).__name__, exc)
+                self._redis_client = None
+                time.sleep(1)
+                client = self._redis()
+                continue
             if not item:
                 continue
             self.record_worker_heartbeat(instance_id=instance_id)
@@ -487,7 +497,13 @@ class BackgroundTaskQueue:
             import redis
         except ImportError as exc:  # pragma: no cover - optional dependency guard
             raise RuntimeError("Redis task queue requires the redis package.") from exc
-        self._redis_client = redis.Redis.from_url(get_settings().redis_url, decode_responses=True)
+        self._redis_client = redis.Redis.from_url(
+            get_settings().redis_url,
+            decode_responses=True,
+            health_check_interval=30,
+            socket_connect_timeout=5,
+            socket_timeout=30,
+        )
         self._redis_client.ping()
         return self._redis_client
 
