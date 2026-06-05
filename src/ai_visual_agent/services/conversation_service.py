@@ -1633,9 +1633,9 @@ def _run_target_agent(*, session_id: str, project: ProjectRecord, target_agent: 
             role="agent",
             message_type="review_gate",
             content=(
-                "\u51fa\u56fe Agent \u5df2\u5f00\u59cb\u751f\u6210\u5305\u88c5\u4e3b\u56fe\uff0c\u5b8c\u6210\u540e\u4f1a\u5b9e\u65f6\u51fa\u73b0\u5728\u5ba1\u6838\u5361\u4e2d\u3002"
+                "\u51fa\u56fe Agent \u5df2\u5f00\u59cb\u751f\u6210\u5305\u88c5\u4e3b\u56fe\uff0c\u5b8c\u6210\u540e\u4f1a\u5f39\u51fa\u8bbe\u8ba1\u56fe\u786e\u8ba4\u5361\u3002"
                 if workflow_type == "packaging"
-                else "\u51fa\u56fe Agent \u5df2\u5f00\u59cb\u9010\u9762\u751f\u6210\uff0c\u5b8c\u6210\u7684\u89c6\u56fe\u4f1a\u5b9e\u65f6\u51fa\u73b0\u5728\u5ba1\u6838\u5361\u4e2d\u3002"
+                else "\u51fa\u56fe Agent \u5df2\u5f00\u59cb\u9010\u9762\u751f\u6210\uff0c\u89c6\u56fe\u751f\u6210\u7ed3\u675f\u540e\u4f1a\u5f39\u51fa\u8bbe\u8ba1\u56fe\u786e\u8ba4\u5361\u3002"
             ),
             payload={"review_gate": gate.model_dump(mode="json")},
         )

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { Paperclip, Robot, UserCircle } from "@phosphor-icons/react";
+import { Paperclip, Robot, SidebarSimple, UserCircle } from "@phosphor-icons/react";
+import { DotFieldBackground } from "./components/ReactBitsBackgrounds";
+import BorderGlow from "./components/BorderGlow";
+import ShinyText from "./components/ShinyText";
 import {
   batchDeleteConversations,
   cancelBackgroundTask,
@@ -58,6 +61,8 @@ type ResultField = {
   value: unknown;
   editable?: boolean;
   render?: "comparison_table";
+  variant?: "section";
+  tone?: "core" | "secondary";
 };
 type PendingUpload = {
   id: string;
@@ -74,6 +79,7 @@ type SendSnapshot = {
 };
 type TimelineItem =
   | { kind: "message"; id: string; createdAt: string; message: ConversationMessage }
+  | { kind: "process_group"; id: string; createdAt: string; messages: ConversationMessage[] }
   | { kind: "gate"; id: string; createdAt: string; gate: ReviewGate };
 
 const emptyKnowledgeDraft: KnowledgeBaseCreateRequest = {
@@ -98,6 +104,7 @@ export function App() {
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [manageMode, setManageMode] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState("");
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
@@ -146,6 +153,7 @@ export function App() {
   const selectedFromList = selectedId ? conversationsData.find((item) => item.session.id === selectedId) ?? null : null;
   const currentDetail = detail.data ?? selectedFromList;
   const pendingGate = currentDetail?.pending_review_gate ?? null;
+  const visiblePendingGate = pendingGate && shouldRenderReviewGate(pendingGate) ? pendingGate : null;
   const knowledgeEntries = knowledge.data ?? [];
   const userEntries = users.data ?? [];
   const currentProjectId = currentDetail ? projectId(currentDetail) : "";
@@ -522,7 +530,6 @@ export function App() {
   if (authRequired && !authToken) {
     return (
       <LoginScreen
-        adminEmail={health.data?.admin_email ?? "1173817292@qq.com"}
         loading={loginMutation.isPending}
         onSubmit={(email, password) => loginMutation.mutate({ email, password })}
       />
@@ -530,7 +537,8 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell has-dot-field-bg${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+      <DotFieldBackground />
       <aside className="sidebar" aria-label="项目对话">
         <div className="sb-brand">
           <div className="logo-icon">PV</div>
@@ -622,6 +630,8 @@ export function App() {
       <main className="chat-area" aria-live="polite">
         <TopBar
           detail={currentDetail}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={() => setSidebarCollapsed((value) => !value)}
           onDelete={() => {
             if (!selectedId || !currentDetail) return;
             setConfirmState({
@@ -688,7 +698,7 @@ export function App() {
             {currentDetail ? (
               <ChatSurface
                 detail={currentDetail}
-                pendingGate={pendingGate}
+                pendingGate={visiblePendingGate}
                 busy={reviewMutation.isPending}
                 onReview={(input) => reviewMutation.mutate(input)}
               />
@@ -704,7 +714,7 @@ export function App() {
             pendingUploads={pendingUploads}
             projectId={projectId(currentDetail)}
             disabled={busy}
-            pendingGate={Boolean(pendingGate)}
+            pendingGate={Boolean(visiblePendingGate)}
             activeTask={activeTask}
             stopBusy={cancelTaskMutation.isPending}
             onFiles={handleFiles}
@@ -725,48 +735,65 @@ export function App() {
 }
 
 function LoginScreen({
-  adminEmail,
   loading,
   onSubmit
 }: {
-  adminEmail: string;
   loading: boolean;
   onSubmit: (email: string, password: string) => void;
 }) {
-  const [email, setEmail] = useState(adminEmail);
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   return (
     <main className="login-shell">
-      <form
-        className="login-card"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSubmit(email.trim(), password);
-        }}
+      <BorderGlow
+        className="login-border-glow"
+        edgeSensitivity={30}
+        glowColor="40 80 80"
+        backgroundColor="#120F17"
+        borderRadius={28}
+        glowRadius={40}
+        glowIntensity={1}
+        coneSpread={25}
+        animated={false}
+        colors={["#c084fc", "#f472b6", "#38bdf8"]}
       >
-        <div className="login-mark">PV</div>
-        <div className="login-title">
-          <span>PackVision Admin</span>
-          <strong>登录生产控制台</strong>
-        </div>
-        <label>
-          <span>管理员邮箱</span>
-          <input value={email} autoComplete="email" onChange={(event) => setEmail(event.target.value)} />
-        </label>
-        <label>
-          <span>密码</span>
-          <input
-            value={password}
-            type="password"
-            autoComplete="current-password"
-            onChange={(event) => setPassword(event.target.value)}
-          />
-        </label>
-        <button type="submit" disabled={loading || !email.trim() || !password}>
-          {loading ? "登录中..." : "登录"}
-        </button>
-      </form>
+        <form
+          className="login-card"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit(email.trim(), password);
+          }}
+        >
+          <div className="login-mark">PV</div>
+          <div className="login-title">
+            <ShinyText text="PackVision Admin" className="login-shiny-title" speed={2.4} color="#14616e" shineColor="#ffffff" spread={120} />
+            <p>使用授权账号进入多智能体视觉工作台</p>
+          </div>
+          <label>
+            <span>账号</span>
+            <input
+              value={email}
+              autoComplete="username email"
+              placeholder="请输入邮箱"
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>密码</span>
+            <input
+              value={password}
+              type="password"
+              autoComplete="current-password"
+              placeholder="请输入登录密码"
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          <button type="submit" disabled={loading || !email.trim() || !password}>
+            {loading ? "登录中..." : "登录"}
+          </button>
+        </form>
+      </BorderGlow>
     </main>
   );
 }
@@ -846,14 +873,27 @@ function SelectionBar({
 
 function TopBar({
   detail,
+  sidebarCollapsed,
+  onToggleSidebar,
   onDelete
 }: {
   detail: ConversationDetail | null | undefined;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
   onDelete: () => void;
 }) {
   return (
     <div className="mn-top">
       <div className="mn-top-l">
+        <button
+          className="sidebar-toggle-btn"
+          type="button"
+          aria-label={sidebarCollapsed ? "展开项目栏" : "隐藏项目栏"}
+          title={sidebarCollapsed ? "展开项目栏" : "隐藏项目栏"}
+          onClick={onToggleSidebar}
+        >
+          <SidebarSimple size={18} weight="duotone" />
+        </button>
         <div className="mn-top-model">
           <span id="conversationTitleTop">{detail ? projectTitle(detail.session.title) : "PackVision 1.0"}</span>
           <span className="mn-top-model-badge">{detail ? workflowLabel(detail.session.workflow_type) : "Agent"}</span>
@@ -953,13 +993,11 @@ function ChatSurface({
       </div>
       <div className="messages">
         <ContextProgressPanel detail={detail} />
-        {timeline.map((item) =>
-          item.kind === "message" ? (
-            <MessageNode key={item.id} message={item.message} />
-          ) : (
-            <ReviewGateNode key={item.id} gate={item.gate} detail={detail} busy={busy} onReview={onReview} />
-          )
-        )}
+        {timeline.map((item) => {
+          if (item.kind === "message") return <MessageNode key={item.id} message={item.message} />;
+          if (item.kind === "process_group") return <ProcessGroupNode key={item.id} messages={item.messages} />;
+          return <ReviewGateNode key={item.id} gate={item.gate} detail={detail} busy={busy} onReview={onReview} />;
+        })}
         <div ref={bottomRef} />
       </div>
     </div>
@@ -1010,17 +1048,9 @@ function MessageNode({ message }: { message: ConversationMessage }) {
     );
   }
   if (message.message_type === "tool_call" || message.message_type === "tool_result" || message.message_type === "status") {
-    const status = messageRunStatus(message);
-    const iconClass = status === "failed" ? "orange" : status === "done" ? "green" : "orange";
     return (
       <div className="tool-bar compact">
-        <div className="tool-row">
-          <div className="tool-info">
-            <div className={`tool-icon ${iconClass}`}>{status === "done" ? "✓" : status === "failed" ? "!" : "T"}</div>
-            <div className="tool-sub">{message.content || messageTypeLabel(message.message_type)}</div>
-          </div>
-          <span className={`badge ${statusBadgeClass(status)}`}>{statusLabel(status)}</span>
-        </div>
+        <ProcessMessageRow message={message} />
       </div>
     );
   }
@@ -1031,6 +1061,44 @@ function MessageNode({ message }: { message: ConversationMessage }) {
         <div className="agent-label">AI Agent</div>
         <div className="bubble">{message.content || "已完成一项处理。"}</div>
       </div>
+    </div>
+  );
+}
+
+function ProcessGroupNode({ messages }: { messages: ConversationMessage[] }) {
+  const toolCount = messages.filter((message) => message.message_type === "tool_call" || message.message_type === "tool_result").length;
+  const processCount = messages.filter((message) => message.message_type === "status").length;
+  const status = processGroupStatus(messages);
+  const preview = processGroupPreview(messages);
+  return (
+    <details className={`process-box ${status}`}>
+      <summary className="process-box-summary">
+        <span className="process-chevron">›</span>
+        <span className="process-box-title">工具调用 {toolCount}</span>
+        <span className="process-box-dot">·</span>
+        <span className="process-box-title">过程消息 {processCount}</span>
+        {preview ? <span className="process-box-preview">{preview}</span> : null}
+        <span className={`badge ${statusBadgeClass(status)}`}>{statusLabel(status)}</span>
+      </summary>
+      <div className="process-box-body">
+        {messages.map((message) => (
+          <ProcessMessageRow key={message.id} message={message} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ProcessMessageRow({ message }: { message: ConversationMessage }) {
+  const status = messageRunStatus(message);
+  const iconClass = status === "failed" ? "orange" : status === "done" ? "green" : "orange";
+  return (
+    <div className={`tool-row process-row ${status}`}>
+      <div className="tool-info">
+        <div className={`tool-icon ${iconClass}`}>{status === "done" ? "✓" : status === "failed" ? "!" : "T"}</div>
+        <div className="tool-sub">{message.content || messageTypeLabel(message.message_type)}</div>
+      </div>
+      <span className={`badge ${statusBadgeClass(status)}`}>{statusLabel(status)}</span>
     </div>
   );
 }
@@ -1051,12 +1119,15 @@ function ReviewGateNode({
   const [revision, setRevision] = useState("");
   const isPending = gate.status === "pending";
   const conceptItems = conceptItemsFromPayload(gate.payload, detail.assets);
+  const showReviewActions = shouldShowReviewActions(gate);
 
   useEffect(() => {
     setEditing(false);
     setJsonDraft(JSON.stringify(gate.payload, null, 2));
     setRevision("");
   }, [gate.id, gate.payload]);
+
+  if (!shouldRenderReviewGate(gate)) return null;
 
   if (!isPending) {
     return (
@@ -1072,7 +1143,7 @@ function ReviewGateNode({
     <>
       <StructuredResultCard gate={gate} detail={detail} editing={editing} jsonDraft={jsonDraft} onJsonDraft={setJsonDraft} />
       {conceptItems.length ? <ConceptGrid items={conceptItems} projectId={projectId(detail)} /> : null}
-      <div className={`confirm-card${editing ? " editing" : ""}`}>
+      {showReviewActions ? <div className={`confirm-card${editing ? " editing" : ""}`}>
         <div className="confirm-header">
           <div className="confirm-icon">✓</div>
           <div>
@@ -1122,7 +1193,7 @@ function ReviewGateNode({
             回退重新分析
           </button>
         </div>
-      </div>
+      </div> : null}
     </>
   );
 }
@@ -1284,11 +1355,28 @@ function ResultRow({
   editable: boolean;
   onChange: (value: unknown) => void;
 }) {
+  if (field.variant === "section") {
+    return (
+      <div className={`result-section-heading ${field.tone || ""}`.trim()}>
+        <span>{field.label}</span>
+        {field.value ? <strong>{String(field.value)}</strong> : null}
+      </div>
+    );
+  }
   return (
-    <div className="result-row">
+    <div className={resultRowClass(field)}>
       <div className="result-key">{field.label}</div>
       <div className="result-val">
-        {editable ? (
+        {!editable && isSellingPointTitleField(field) ? (
+          <ShinyText
+            text={formatPreview(field.value)}
+            className="selling-title-shiny"
+            speed={2.8}
+            color={sellingPointTitleTone(field) === "secondary" ? "#075f76" : "#064a2c"}
+            shineColor="#ffffff"
+            spread={118}
+          />
+        ) : editable ? (
           <>
             <textarea
               className="result-editor"
@@ -1305,6 +1393,21 @@ function ResultRow({
       </div>
     </div>
   );
+}
+
+function resultRowClass(field: ResultField) {
+  const pathGroup = sellingPointTitleTone(field);
+  return `result-row${pathGroup ? ` selling-title-row ${pathGroup}` : ""}`;
+}
+
+function isSellingPointTitleField(field: ResultField) {
+  return Boolean(sellingPointTitleTone(field));
+}
+
+function sellingPointTitleTone(field: ResultField) {
+  const pathGroup = String(field.path?.[0] || "");
+  const pathLeaf = String(field.path?.at(-1) || "");
+  return (pathGroup === "core" || pathGroup === "secondary") && pathLeaf === "title" ? pathGroup : "";
 }
 
 function renderValue(key: string, value: unknown, detail: ConversationDetail, render?: ResultField["render"]) {
@@ -2014,11 +2117,42 @@ function Toast({ message }: { message: string }) {
 }
 
 function buildTimeline(detail: ConversationDetail): TimelineItem[] {
-  const items: TimelineItem[] = [
+  const items: Array<
+    | { kind: "message"; id: string; createdAt: string; message: ConversationMessage }
+    | { kind: "gate"; id: string; createdAt: string; gate: ReviewGate }
+  > = [
     ...detail.messages.map((message) => ({ kind: "message" as const, id: message.id, createdAt: message.created_at, message })),
-    ...detail.review_gates.map((gate) => ({ kind: "gate" as const, id: gate.id, createdAt: gate.created_at ?? "", gate }))
+    ...detail.review_gates
+      .filter(shouldRenderReviewGate)
+      .map((gate) => ({ kind: "gate" as const, id: gate.id, createdAt: gate.created_at ?? "", gate }))
   ];
-  return items.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+  const sorted = items.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+  const timeline: TimelineItem[] = [];
+  let processBuffer: ConversationMessage[] = [];
+
+  const flushProcessBuffer = () => {
+    if (!processBuffer.length) return;
+    const first = processBuffer[0];
+    const last = processBuffer[processBuffer.length - 1];
+    timeline.push({
+      kind: "process_group",
+      id: `process-${first.id}-${last.id}-${processBuffer.length}`,
+      createdAt: first.created_at,
+      messages: processBuffer
+    });
+    processBuffer = [];
+  };
+
+  for (const item of sorted) {
+    if (item.kind === "message" && isProcessMessage(item.message)) {
+      processBuffer.push(item.message);
+      continue;
+    }
+    flushProcessBuffer();
+    timeline.push(item);
+  }
+  flushProcessBuffer();
+  return timeline;
 }
 
 function upsertConversationCache(queryClient: QueryClient, detail: ConversationDetail) {
@@ -2141,6 +2275,57 @@ function referenceIdsFromPayload(payload: Record<string, unknown>, layout: Recor
   return Array.from(new Set(ids));
 }
 
+function shouldRenderReviewGate(gate: ReviewGate) {
+  if (gate.status !== "pending") return true;
+  if (gate.type !== "final_design_review") return true;
+  const payload = gate.payload ?? {};
+  if (payload.generation_blocked) return true;
+  if (finalDesignHasRenderableOutput(payload)) return true;
+  return finalDesignIsTerminal(payload);
+}
+
+function shouldShowReviewActions(gate: ReviewGate) {
+  if (gate.status !== "pending") return false;
+  if (gate.type !== "final_design_review") return true;
+  const payload = gate.payload ?? {};
+  if (payload.generation_blocked) return true;
+  if (!finalDesignIsTerminal(payload)) return false;
+  return finalDesignHasRenderableOutput(payload) || finalDesignHasErrors(payload);
+}
+
+function finalDesignIsTerminal(payload: Record<string, unknown>) {
+  const status = stringValue(payload.generation_status).toLowerCase();
+  return ["completed", "succeeded", "done", "partial_failed", "failed", "cancelled"].includes(status);
+}
+
+function finalDesignHasRenderableOutput(payload: Record<string, unknown>) {
+  const outputs = asRecord(payload.generated_outputs);
+  const items = Array.isArray(outputs.items) ? outputs.items.map((item) => asRecord(item)) : [];
+  return items.some((item) =>
+    Boolean(
+      item.asset_id ||
+      item.display_asset_id ||
+      item.image_asset_id ||
+      item.imageAssetId ||
+      item.assetId ||
+      item.url ||
+      item.output_url ||
+      item.image_url ||
+      item.uri
+    )
+  );
+}
+
+function finalDesignHasErrors(payload: Record<string, unknown>) {
+  if (Array.isArray(payload.generation_errors) && payload.generation_errors.length) return true;
+  const outputs = asRecord(payload.generated_outputs);
+  const items = Array.isArray(outputs.items) ? outputs.items.map((item) => asRecord(item)) : [];
+  return items.some((item) => {
+    const layout = asRecord(item.layout_spec);
+    return Boolean(item.error || item.image_generation_error || layout.error || layout.image_generation_error);
+  });
+}
+
 function generationStatusLabel(status: string) {
   return ({ running: "生成中", completed: "已完成", partial_failed: "部分完成", failed: "失败", cancelled: "已暂停" }[status] ?? "待生成");
 }
@@ -2185,6 +2370,9 @@ function uspSummaryFields(payload: Record<string, unknown>): ResultField[] {
   const core = Array.isArray(payload.core) ? payload.core.map((item) => asRecord(item)).slice(0, 3) : [];
   const secondary = Array.isArray(payload.secondary) ? payload.secondary.map((item) => asRecord(item)).slice(0, 3) : [];
 
+  if (core.length) {
+    fields.push({ label: "核心卖点", value: `${core.length} 条`, editable: false, variant: "section", tone: "core" });
+  }
   core.forEach((item, index) => {
     const headline = stringValue(item.headline || item.title);
     const angle = stringValue(item.angle);
@@ -2216,6 +2404,9 @@ function uspSummaryFields(payload: Record<string, unknown>): ResultField[] {
     }
   });
 
+  if (secondary.length) {
+    fields.push({ label: "次要卖点", value: `${secondary.length} 条`, editable: false, variant: "section", tone: "secondary" });
+  }
   secondary.forEach((item, index) => {
     const headline = stringValue(item.headline || item.title);
     const angle = stringValue(item.angle);
@@ -2698,6 +2889,27 @@ function shortText(value: string, length: number) {
 
 function messageTypeLabel(type: string) {
   return ({ status: "状态", tool_call: "工具调用", tool_result: "工具结果", review_action: "人工操作", planner_decision: "调度决策" }[type] ?? type);
+}
+
+function isProcessMessage(message: ConversationMessage) {
+  return message.message_type === "tool_call" || message.message_type === "tool_result" || message.message_type === "status";
+}
+
+function processGroupStatus(messages: ConversationMessage[]) {
+  const statuses = messages.map(messageRunStatus);
+  if (statuses.includes("failed")) return "failed";
+  if (statuses.includes("running")) return "running";
+  if (statuses.includes("waiting")) return "waiting";
+  return "done";
+}
+
+function processGroupPreview(messages: ConversationMessage[]) {
+  const activeMessage =
+    [...messages].reverse().find((message) => {
+      const status = messageRunStatus(message);
+      return status === "running" || status === "waiting" || status === "failed";
+    }) ?? messages[messages.length - 1];
+  return activeMessage?.content ? shortText(activeMessage.content, 44) : "";
 }
 
 function taskKindLabel(kind: string) {
